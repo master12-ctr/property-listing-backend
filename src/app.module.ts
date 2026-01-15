@@ -3,14 +3,11 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ThrottlerModule } from '@nestjs/throttler';
 
-import { AuthModule } from './auth/auth.module';
-import { UsersModule } from './users/users.module';
-import { PropertiesModule } from './properties/properties.module';
-import { FavoritesModule } from './favorites/favorites.module';
-import { ImagesModule } from './images/images.module';
+
 
 import { LoggerModule } from './shared/infrastructure/logger/logger.module';
 import { ExceptionsModule } from './shared/infrastructure/exceptions/exceptions.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -34,7 +31,6 @@ import { ExceptionsModule } from './shared/infrastructure/exceptions/exceptions.
     AuthModule,
     UsersModule,
     PropertiesModule,
-    FavoritesModule,
     ImagesModule,
   ],
 })
