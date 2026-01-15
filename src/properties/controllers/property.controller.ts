@@ -13,14 +13,14 @@ import {
 } from '@nestjs/common';
 import { PropertyCommands } from '../usecases/property/property.commands';
 import { PropertyQueries } from '../usecases/property/property.queries';
-import { CreatePropertyDto } from '../dto/create-property.dto';
-import { UpdatePropertyDto } from '../dto/update-property.dto';
-import { QueryPropertyDto } from '../dto/query-property.dto';
-import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../auth/guards/permissions.guard';
 import { Permissions } from '../../auth/decorators/permissions.decorator';
-import { GetUser } from '../../auth/decorators/get-user.decorator';
 import { Permission } from '../../shared/constants/permissions';
+import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
+import { CreatePropertyDto } from '../dto/create-property.dto';
+import { GetUser } from 'src/auth/decorators/get-user.decorator';
+import { QueryPropertyDto } from '../dto/query-property.dto';
+import { UpdatePropertyDto } from '../dto/update-property.dto';
 
 @Controller('properties')
 export class PropertyController {

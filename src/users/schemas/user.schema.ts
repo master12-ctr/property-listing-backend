@@ -5,15 +5,21 @@ import { Permission } from '../../shared/constants/permissions';
 
 export type UserDocument = User & Document;
 
+// Define an interface for the transformation function
+interface UserTransformed {
+  [key: string]: any;
+  password?: string;
+  __v?: number;
+}
+
 @Schema({
   timestamps: true,
   toJSON: {
     virtuals: true,
-    transform: (doc, ret) => {
-      // Remove password and version key from response
-      delete ret.password;
-      delete ret.__v;
-      return ret;
+    transform: (doc, ret: UserTransformed) => {
+      // Safely delete properties
+      const { password, __v, ...rest } = ret;
+      return rest;
     },
   },
 })
@@ -54,12 +60,6 @@ export class User extends Document {
   @Prop()
   deletedAt?: Date;
 
-  @Prop({ default: Date.now })
-  createdAt: Date;
-
-  @Prop({ default: Date.now })
-  updatedAt: Date;
-
   // Virtual method to check permission
   hasPermission(permission: Permission): boolean {
     return this.permissions.includes(permission);
@@ -73,10 +73,12 @@ export class User extends Document {
   // Instance method to get safe user object
   toSafeObject() {
     const obj = this.toObject();
-    delete obj.password;
-    delete obj.__v;
-    return obj;
+    const { password, __v, ...safeObj } = obj;
+    return safeObj;
   }
+
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
@@ -85,3 +87,11 @@ export const UserSchema = SchemaFactory.createForClass(User);
 UserSchema.index({ email: 1 }, { unique: true });
 UserSchema.index({ permissions: 1 });
 UserSchema.index({ deletedAt: 1 });
+
+// Add method to remove password
+UserSchema.methods.toJSON = function() {
+  const obj = this.toObject();
+  delete obj.password;
+  delete obj.__v;
+  return obj;
+};

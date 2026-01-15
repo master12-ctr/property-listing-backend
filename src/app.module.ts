@@ -8,6 +8,9 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from './shared/infrastructure/logger/logger.module';
 import { ExceptionsModule } from './shared/infrastructure/exceptions/exceptions.module';
 import { AuthModule } from './auth/auth.module';
+import { UsersModule } from './users/users.module';
+import { PropertiesModule } from './properties/properties.module';
+import { ImagesModule } from './images/images.module';
 
 @Module({
   imports: [
