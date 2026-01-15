@@ -54,7 +54,7 @@ export class PropertyController {
     @Query('status') status: string,
     @GetUser() user: any,
   ) {
-    return this.queries.findByOwner(user.userId, user.userId, user.permissions, status);
+    return this.queries.findByOwner(user.userId, user.userId, user.permissions);
   }
 
   @Get('favorites')

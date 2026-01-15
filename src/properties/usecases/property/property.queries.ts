@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { Property } from '../../domain/property/Property';
+import { Property, PropertyStatus } from '../../domain/property/Property';
+import { QueryPropertyDto } from '../../dto/query-property.dto';
 import { Permission } from '../../../shared/constants/permissions';
 import { PropertyRepository } from 'src/auth/properties/persistence/property/property.repository';
-import { QueryPropertyDto } from 'src/properties/dto/query-property.dto';
 
 @Injectable()
 export class PropertyQueries {
@@ -22,7 +22,7 @@ export class PropertyQueries {
   }> {
     // If user doesn't have permission to read all properties, only show published
     if (!userPermissions.includes(Permission.PROPERTY_READ_ALL)) {
-      query.status = 'published'; // Force published status
+      query.status = PropertyStatus.PUBLISHED; // Use enum value
     }
 
     return await this.propertyRepository.findAllPaginated(query);
@@ -44,7 +44,7 @@ export class PropertyQueries {
     const canReadOwn = userPermissions.includes(Permission.PROPERTY_READ_OWN);
     
     // Always allow access to published properties
-    const isPublished = property.status === 'published';
+    const isPublished = property.status === PropertyStatus.PUBLISHED;
     
     // Allow access if:
     // 1. Property is published, OR
@@ -61,7 +61,7 @@ export class PropertyQueries {
     ownerId: string,
     userId: string,
     userPermissions: string[],
-    status?: string,
+    status?: PropertyStatus,
   ): Promise<Property[]> {
     // Permission checks
     const canReadAll = userPermissions.includes(Permission.PROPERTY_READ_ALL);
@@ -71,7 +71,7 @@ export class PropertyQueries {
       throw new Error('Insufficient permissions to view these properties');
     }
 
-    return await this.propertyRepository.findByOwner(ownerId, status as any);
+    return await this.propertyRepository.findByOwner(ownerId, status);
   }
 
   async findFavorites(userId: string): Promise<Property[]> {

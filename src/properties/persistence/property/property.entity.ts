@@ -2,13 +2,22 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 import { PropertyStatus, PropertyType } from '../../domain/property/Property';
 
+export type PropertyDocument = PropertyEntity & Document;
+
+// Define interface for transformed object
+interface PropertyTransformed {
+  [key: string]: any;
+  __v?: number;
+}
+
 @Schema({
   timestamps: true,
   toJSON: {
     virtuals: true,
-    transform: (_, ret) => {
-      delete ret.__v;
-      return ret;
+    transform: (_, ret: PropertyTransformed) => {
+      // Use destructuring to safely remove __v
+      const { __v, ...rest } = ret;
+      return rest;
     },
   },
 })
@@ -118,3 +127,10 @@ PropertySchema.pre('findOne', function() {
 PropertySchema.pre('countDocuments', function() {
   this.where({ deletedAt: null });
 });
+
+// Add method to remove __v
+PropertySchema.methods.toJSON = function() {
+  const obj = this.toObject();
+  delete obj.__v;
+  return obj;
+};
