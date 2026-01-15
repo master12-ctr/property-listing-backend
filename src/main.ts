@@ -4,8 +4,8 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 import { AppModule } from './app.module';
 import { AllExceptionFilter } from './shared/infrastructure/filter/exception.filter';
-import { LoggerService } from './shared/infrastructure/logger/logger.service';
 import { LoggingInterceptor } from './shared/infrastructure/interceptors/logger.interceptor';
+import { LoggerService } from './shared/infrastructure/logger/logger.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
