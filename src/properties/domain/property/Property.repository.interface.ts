@@ -1,5 +1,4 @@
 import { Property, PropertyStatus } from './Property';
-import { QueryPropertyDto } from '../../dto/query-property.dto';
 
 export interface IPropertyRepository {
   // Commands
