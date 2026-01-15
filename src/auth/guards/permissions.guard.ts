@@ -12,19 +12,18 @@ export class PermissionsGuard implements CanActivate {
       PERMISSIONS_KEY,
       [context.getHandler(), context.getClass()],
     );
-
+    
     if (!requiredPermissions || requiredPermissions.length === 0) {
       return true;
     }
-
+    
     const request = context.switchToHttp().getRequest();
     const user = request.user;
-
+    
     if (!user) {
       throw new ForbiddenException('Authentication required');
     }
-
-    // Check if user has all required permissions
+    
     const hasAllPermissions = requiredPermissions.every(permission =>
       user.permissions?.includes(permission),
     );
@@ -36,25 +35,5 @@ export class PermissionsGuard implements CanActivate {
     }
 
     return true;
-  }
-}
-
-// Combined guard for JWT + Permissions
-@Injectable()
-export class JwtPermissionsGuard implements CanActivate {
-  constructor(
-    private jwtAuthGuard: JwtAuthGuard,
-    private permissionsGuard: PermissionsGuard,
-  ) {}
-
-  async canActivate(context: ExecutionContext): Promise<boolean> {
-    // First check JWT authentication
-    const canActivateJwt = await this.jwtAuthGuard.canActivate(context);
-    if (!canActivateJwt) {
-      return false;
-    }
-
-    // Then check permissions
-    return this.permissionsGuard.canActivate(context);
   }
 }
