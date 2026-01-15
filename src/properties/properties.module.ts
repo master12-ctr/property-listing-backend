@@ -3,9 +3,9 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { PropertyController } from './controllers/property.controller';
 import { PropertyCommands } from './usecases/property/property.commands';
 import { PropertyQueries } from './usecases/property/property.queries';
-import { PropertyRepository } from './persistence/property/property.repository';
 import { PropertyEntity, PropertySchema } from './persistence/property/property.entity';
 import { ImagesModule } from '../images/images.module';
+import { PropertyRepository } from 'src/auth/properties/persistence/property/property.repository';
 
 @Module({
   imports: [

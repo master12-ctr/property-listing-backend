@@ -28,8 +28,8 @@ export class Property {
   status: PropertyStatus;
   type: PropertyType;
   ownerId: string;
-  views: number;
-  favoritesCount: number;
+  views: number = 0;
+  favoritesCount: number = 0;
   metadata?: Record<string, any>;
   publishedAt?: Date;
   deletedAt?: Date;

@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { Property, PropertyStatus } from '../../domain/property/Property';
-import { CreatePropertyDto } from '../../dto/create-property.dto';
-import { UpdatePropertyDto } from '../../dto/update-property.dto';
-import { PropertyRepository } from '../../persistence/property/property.repository';
-import { UsersService } from '../../../users/users.service';
-import { ImagesService } from '../../../images/images.service';
 import { LoggerService } from '../../../shared/infrastructure/logger/logger.service';
+import { PropertyRepository } from 'src/auth/properties/persistence/property/property.repository';
+import { UsersService } from 'src/users/users.service';
+import { ImagesService } from 'src/images/images.service';
+import { CreatePropertyDto } from 'src/properties/dto/create-property.dto';
+import { UpdatePropertyDto } from 'src/properties/dto/update-property.dto';
 
 @Injectable()
 export class PropertyCommands {

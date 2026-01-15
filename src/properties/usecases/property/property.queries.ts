@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { Property } from '../../domain/property/Property';
-import { QueryPropertyDto } from '../../dto/query-property.dto';
-import { PropertyRepository } from '../../persistence/property/property.repository';
 import { Permission } from '../../../shared/constants/permissions';
+import { PropertyRepository } from 'src/auth/properties/persistence/property/property.repository';
+import { QueryPropertyDto } from 'src/properties/dto/query-property.dto';
 
 @Injectable()
 export class PropertyQueries {
