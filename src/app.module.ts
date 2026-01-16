@@ -3,12 +3,11 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ThrottlerModule } from '@nestjs/throttler';
 
-
-
 import { LoggerModule } from './shared/infrastructure/logger/logger.module';
 import { ExceptionsModule } from './shared/infrastructure/exceptions/exceptions.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
+import { RolesModule } from './roles/roles.module';
 import { PropertiesModule } from './properties/properties.module';
 import { ImagesModule } from './images/images.module';
 
@@ -16,7 +15,10 @@ import { ImagesModule } from './images/images.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: `.env.${process.env.NODE_ENV || 'development'}`,
+      envFilePath: process.env.NODE_ENV 
+        ? `.env.${process.env.NODE_ENV}` 
+        : ['.env.development', '.env'],
+      expandVariables: true,
     }),
     ThrottlerModule.forRoot([{
       ttl: 60000,
@@ -25,7 +27,7 @@ import { ImagesModule } from './images/images.module';
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
-        uri: configService.get<string>('MONGODB_URI'),
+        uri: configService.get<string>('MONGODB_URI', 'mongodb://localhost:27017/property_listing'),
       }),
       inject: [ConfigService],
     }),
@@ -33,6 +35,7 @@ import { ImagesModule } from './images/images.module';
     ExceptionsModule,
     AuthModule,
     UsersModule,
+    RolesModule,
     PropertiesModule,
     ImagesModule,
   ],

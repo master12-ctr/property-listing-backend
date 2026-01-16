@@ -1,11 +1,9 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 import { Exclude } from 'class-transformer';
-import { Permission } from '../../shared/constants/permissions';
 
 export type UserDocument = User & Document;
 
-// Define an interface for the transformation function
 interface UserTransformed {
   [key: string]: any;
   password?: string;
@@ -17,7 +15,6 @@ interface UserTransformed {
   toJSON: {
     virtuals: true,
     transform: (doc, ret: UserTransformed) => {
-      // Safely delete properties
       const { password, __v, ...rest } = ret;
       return rest;
     },
@@ -27,19 +24,15 @@ export class User extends Document {
   @Prop({ required: true, trim: true })
   name: string;
 
-  @Prop({ required: true, unique: true, lowercase: true, trim: true }) // Remove index: true here
+  @Prop({ required: true, unique: true, lowercase: true, trim: true })
   email: string;
 
   @Prop({ required: true })
   @Exclude()
   password: string;
 
-  @Prop({ 
-    type: [String], 
-    enum: Object.values(Permission),
-    default: []
-  })
-  permissions: Permission[];
+  @Prop({ type: [{ type: Types.ObjectId, ref: 'Role' }], default: [] })
+  roles: Types.ObjectId[];
 
   @Prop({ default: true })
   isActive: boolean;
@@ -60,32 +53,25 @@ export class User extends Document {
   @Prop()
   deletedAt?: Date;
 
-  // Virtual method to check permission
-  hasPermission(permission: Permission): boolean {
-    return this.permissions.includes(permission);
-  }
+  @Prop()
+  createdAt: Date;
 
-  // Virtual method to check multiple permissions
-  hasPermissions(permissions: Permission[]): boolean {
-    return permissions.every(p => this.permissions.includes(p));
-  }
+  @Prop()
+  updatedAt: Date;
 
-  // Instance method to get safe user object
+  // Helper method to get safe user object
   toSafeObject() {
     const obj = this.toObject();
     const { password, __v, ...safeObj } = obj;
     return safeObj;
   }
-
-  createdAt: Date;
-  updatedAt: Date;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
 
-// Indexes - REMOVE the duplicate email index since it's already defined by unique: true
-// UserSchema.index({ email: 1 }, { unique: true }); // REMOVE THIS LINE
-UserSchema.index({ permissions: 1 });
+// Indexes
+UserSchema.index({ email: 1 }, { unique: true });
+UserSchema.index({ roles: 1 });
 UserSchema.index({ deletedAt: 1 });
 
 // Add method to remove password

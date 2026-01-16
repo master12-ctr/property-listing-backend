@@ -13,7 +13,7 @@ export class UsersController {
 
   @Get('profile')
   async getProfile(@GetUser() user: any) {
-    return this.usersService.findById(user.userId);
+    return this.usersService.findByIdOrThrow(user.userId);
   }
 
   @Get()
@@ -27,7 +27,7 @@ export class UsersController {
   @UseGuards(PermissionsGuard)
   @Permissions(Permission.USER_READ_ALL)
   async findOne(@Param('id') id: string) {
-    return this.usersService.findById(id);
+    return this.usersService.findByIdOrThrow(id);
   }
 
   @Put('profile')
@@ -40,5 +40,25 @@ export class UsersController {
   @Permissions(Permission.USER_UPDATE_ALL)
   async remove(@Param('id') id: string) {
     return this.usersService.remove(id);
+  }
+
+  @Post(':userId/roles/:roleId')
+  @UseGuards(PermissionsGuard)
+  @Permissions(Permission.USER_UPDATE_ALL)
+  async addRole(
+    @Param('userId') userId: string,
+    @Param('roleId') roleId: string,
+  ) {
+    return this.usersService.addRole(userId, roleId);
+  }
+
+  @Delete(':userId/roles/:roleId')
+  @UseGuards(PermissionsGuard)
+  @Permissions(Permission.USER_UPDATE_ALL)
+  async removeRole(
+    @Param('userId') userId: string,
+    @Param('roleId') roleId: string,
+  ) {
+    return this.usersService.removeRole(userId, roleId);
   }
 }

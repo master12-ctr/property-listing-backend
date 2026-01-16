@@ -7,17 +7,25 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 import { UsersModule } from '../users/users.module';
+import { RolesModule } from 'src/roles/roles.module';
 
 @Module({
   imports: [
     UsersModule,
+     RolesModule,
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {
         const secret = configService.get<string>('JWT_SECRET');
         if (!secret) {
-          throw new Error('JWT_SECRET is not defined in environment variables');
+          console.warn('WARNING: JWT_SECRET not found in environment variables. Using fallback secret.');
+          return {
+            secret: 'fallback-secret-key-change-this-in-production',
+            signOptions: { 
+              expiresIn: configService.get<string>('JWT_EXPIRATION', '7d') as any
+            },
+          };
         }
         const expiresIn = configService.get<string>('JWT_EXPIRATION', '7d');
         return {
