@@ -5,6 +5,8 @@ import { Model, Types } from 'mongoose';
 import { PropertyEntity, PropertyDocument } from '../properties/persistence/property/property.entity';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { Contact, ContactDocument } from '../contact/schemas/contact.schema';
+import { Role, RoleDocument } from '../roles/schemas/role.schema';
+import { Tenant, TenantDocument } from '../tenants/schemas/tenant.schema';
 import { PropertyStatus } from '../properties/domain/property/Property';
 
 @Injectable()
@@ -13,10 +15,19 @@ export class MetricsService {
     @InjectModel(PropertyEntity.name) private propertyModel: Model<PropertyDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Contact.name) private contactModel: Model<ContactDocument>,
+    @InjectModel(Role.name) private roleModel: Model<RoleDocument>,
+    @InjectModel(Tenant.name) private tenantModel: Model<TenantDocument>,
   ) {}
 
   async getSystemMetrics() {
     try {
+      // Get role IDs first
+      const [regularUserRole, propertyOwnerRole, adminRole] = await Promise.all([
+        this.roleModel.findOne({ name: 'regular_user' }),
+        this.roleModel.findOne({ name: 'property_owner' }),
+        this.roleModel.findOne({ name: 'admin' }),
+      ]);
+
       const [
         totalProperties,
         publishedProperties,
@@ -32,6 +43,8 @@ export class MetricsService {
         recentProperties,
         topViewedProperties,
         recentContacts,
+        totalTenants,
+        activeTenants,
       ] = await Promise.all([
         // Property counts
         this.propertyModel.countDocuments({ deletedAt: null }),
@@ -54,18 +67,18 @@ export class MetricsService {
         
         // User counts
         this.userModel.countDocuments({ deletedAt: null }),
-        this.userModel.countDocuments({ 
-          'roles': { $in: [await this.getRoleIdByName('regular_user')] },
+        regularUserRole ? this.userModel.countDocuments({ 
+          roles: { $in: [regularUserRole._id] },
           deletedAt: null 
-        }),
-        this.userModel.countDocuments({ 
-          'roles': { $in: [await this.getRoleIdByName('property_owner')] },
+        }) : 0,
+        propertyOwnerRole ? this.userModel.countDocuments({ 
+          roles: { $in: [propertyOwnerRole._id] },
           deletedAt: null 
-        }),
-        this.userModel.countDocuments({ 
-          'roles': { $in: [await this.getRoleIdByName('admin')] },
+        }) : 0,
+        adminRole ? this.userModel.countDocuments({ 
+          roles: { $in: [adminRole._id] },
           deletedAt: null 
-        }),
+        }) : 0,
         
         // Contact counts
         this.contactModel.countDocuments({ deletedAt: null }),
@@ -80,6 +93,7 @@ export class MetricsService {
           .sort({ createdAt: -1 })
           .limit(5)
           .populate('owner', 'name email')
+          .populate('tenant', 'name slug')
           .exec(),
         
         this.propertyModel
@@ -87,6 +101,7 @@ export class MetricsService {
           .sort({ views: -1 })
           .limit(5)
           .populate('owner', 'name email')
+          .populate('tenant', 'name slug')
           .exec(),
         
         this.contactModel
@@ -97,10 +112,21 @@ export class MetricsService {
           .populate('fromUser', 'name email')
           .populate('toUser', 'name email')
           .exec(),
+        
+        // Tenant counts
+        this.tenantModel.countDocuments({ deletedAt: null }),
+        this.tenantModel.countDocuments({ 
+          isActive: true, 
+          deletedAt: null 
+        }),
       ]);
 
       return {
         summary: {
+          tenants: {
+            total: totalTenants,
+            active: activeTenants,
+          },
           properties: {
             total: totalProperties,
             published: publishedProperties,
@@ -126,6 +152,7 @@ export class MetricsService {
             status: prop.status,
             createdAt: prop.createdAt,
             owner: prop.owner,
+            tenant: prop.tenant,
           })),
           topViewedProperties: topViewedProperties.map(prop => ({
             id: prop._id,
@@ -138,7 +165,7 @@ export class MetricsService {
             property: contact.property,
             fromUser: contact.fromUser,
             toUser: contact.toUser,
-            message: contact.message.substring(0, 100) + '...',
+            message: contact.message?.substring(0, 100) + '...',
             createdAt: contact.createdAt,
           })),
         },
@@ -225,11 +252,5 @@ export class MetricsService {
       console.error('Error getting property metrics:', error);
       throw new BadRequestException('Failed to get property metrics');
     }
-  }
-
-  private async getRoleIdByName(roleName: string): Promise<Types.ObjectId> {
-    // This is a simplified version - in production, you would have a proper Role model
-    // For now, we'll return a dummy ObjectId
-    return new Types.ObjectId();
   }
 }

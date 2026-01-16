@@ -1,3 +1,4 @@
+
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 import { Exclude } from 'class-transformer';
@@ -24,7 +25,12 @@ export class User extends Document {
   @Prop({ required: true, trim: true })
   name: string;
 
-  @Prop({ required: true, unique: true, lowercase: true, trim: true })
+  @Prop({ 
+    required: true, 
+    unique: true, 
+    lowercase: true, 
+    trim: true
+  })
   email: string;
 
   @Prop({ required: true })
@@ -33,6 +39,9 @@ export class User extends Document {
 
   @Prop({ type: [{ type: Types.ObjectId, ref: 'Role' }], default: [] })
   roles: Types.ObjectId[];
+
+  @Prop({ type: Types.ObjectId, ref: 'Tenant', required: true, index: true })
+  tenant: Types.ObjectId;
 
   @Prop({ default: true })
   isActive: boolean;
@@ -59,7 +68,6 @@ export class User extends Document {
   @Prop()
   updatedAt: Date;
 
-  // Helper method to get safe user object
   toSafeObject() {
     const obj = this.toObject();
     const { password, __v, ...safeObj } = obj;
@@ -69,12 +77,12 @@ export class User extends Document {
 
 export const UserSchema = SchemaFactory.createForClass(User);
 
-// Indexes
 UserSchema.index({ email: 1 }, { unique: true });
+UserSchema.index({ tenant: 1, email: 1 }, { unique: true });
 UserSchema.index({ roles: 1 });
 UserSchema.index({ deletedAt: 1 });
+UserSchema.index({ isActive: 1 });
 
-// Add method to remove password
 UserSchema.methods.toJSON = function() {
   const obj = this.toObject();
   delete obj.password;

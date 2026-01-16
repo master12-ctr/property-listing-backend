@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { PropertyEntity, PropertyDocument } from './property.entity';
@@ -13,17 +13,25 @@ export class PropertyRepository implements IPropertyRepository {
     private readonly propertyModel: Model<PropertyDocument>,
   ) {}
 
-  async create(property: Property): Promise<Property> {
+  async create(property: Property, tenantId: string): Promise<Property> {
     const entity = this.toEntity(property);
+    entity.tenant = new Types.ObjectId(tenantId);
     const saved = await this.propertyModel.create(entity);
     return this.toDomain(saved);
   }
 
-  async update(id: string, property: Property): Promise<Property> {
+  async update(id: string, property: Property, tenantId?: string): Promise<Property> {
+    const query: any = { _id: new Types.ObjectId(id), deletedAt: null };
+    
+    if (tenantId) {
+      query.tenant = new Types.ObjectId(tenantId);
+    }
+
     const entity = this.toEntity(property);
     const updated = await this.propertyModel
-      .findByIdAndUpdate(id, entity, { new: true })
+      .findOneAndUpdate(query, entity, { new: true })
       .populate('owner', 'name email')
+      .populate('disabledBy', 'name email')
       .exec();
     
     if (!updated) {
@@ -33,31 +41,51 @@ export class PropertyRepository implements IPropertyRepository {
     return this.toDomain(updated);
   }
 
-  async softDelete(id: string): Promise<void> {
-    const result = await this.propertyModel.findByIdAndUpdate(id, { 
-      deletedAt: new Date() 
-    }).exec();
+  async softDelete(id: string, tenantId?: string): Promise<void> {
+    const query: any = { _id: new Types.ObjectId(id) };
+    
+    if (tenantId) {
+      query.tenant = new Types.ObjectId(tenantId);
+    }
+
+    const result = await this.propertyModel.findOneAndUpdate(
+      query,
+      { deletedAt: new Date() },
+      { new: true },
+    ).exec();
     
     if (!result) {
       throw new NotFoundException(`Property with id ${id} not found`);
     }
   }
 
-  async publish(id: string): Promise<Property> {
+  async publish(id: string, tenantId?: string): Promise<Property> {
+    const query: any = { _id: new Types.ObjectId(id), deletedAt: null };
+    
+    if (tenantId) {
+      query.tenant = new Types.ObjectId(tenantId);
+    }
+
     const session = await this.propertyModel.db.startSession();
     session.startTransaction();
 
     try {
       const property = await this.propertyModel
-        .findById(id)
+        .findOne(query)
         .session(session);
 
       if (!property) {
         throw new NotFoundException(`Property with id ${id} not found`);
       }
 
-      if (property.images.length === 0) {
-        throw new Error('Property must have at least one image to publish');
+      // Transactional validation: Must have at least one image
+      if (!property.images || property.images.length === 0) {
+        throw new BadRequestException('Property must have at least one image to publish');
+      }
+
+      // Ensure property is in draft state
+      if (property.status !== PropertyStatus.DRAFT) {
+        throw new BadRequestException('Only draft properties can be published');
       }
 
       property.status = PropertyStatus.PUBLISHED;
@@ -75,10 +103,16 @@ export class PropertyRepository implements IPropertyRepository {
     }
   }
 
-  async archive(id: string): Promise<Property> {
+  async archive(id: string, tenantId?: string): Promise<Property> {
+    const query: any = { _id: new Types.ObjectId(id), deletedAt: null };
+    
+    if (tenantId) {
+      query.tenant = new Types.ObjectId(tenantId);
+    }
+
     const updated = await this.propertyModel
-      .findByIdAndUpdate(
-        id,
+      .findOneAndUpdate(
+        query,
         { status: PropertyStatus.ARCHIVED },
         { new: true },
       )
@@ -92,28 +126,103 @@ export class PropertyRepository implements IPropertyRepository {
     return this.toDomain(updated);
   }
 
-  async findById(id: string): Promise<Property | null> {
-    const entity = await this.propertyModel
-      .findById(id)
+  async disable(id: string, disabledBy: string, tenantId?: string): Promise<Property> {
+    const query: any = { _id: new Types.ObjectId(id), deletedAt: null };
+    
+    if (tenantId) {
+      query.tenant = new Types.ObjectId(tenantId);
+    }
+
+    const updated = await this.propertyModel
+      .findOneAndUpdate(
+        query,
+        { 
+          status: PropertyStatus.DISABLED,
+          disabledAt: new Date(),
+          disabledBy: new Types.ObjectId(disabledBy),
+        },
+        { new: true },
+      )
+      .populate('owner', 'name email')
+      .populate('disabledBy', 'name email')
+      .exec();
+    
+    if (!updated) {
+      throw new NotFoundException(`Property with id ${id} not found`);
+    }
+    
+    return this.toDomain(updated);
+  }
+
+  async enable(id: string, tenantId?: string): Promise<Property> {
+    const query: any = { _id: new Types.ObjectId(id), deletedAt: null };
+    
+    if (tenantId) {
+      query.tenant = new Types.ObjectId(tenantId);
+    }
+
+    const updated = await this.propertyModel
+      .findOneAndUpdate(
+        query,
+        { 
+          status: PropertyStatus.DRAFT,
+          disabledAt: null,
+          disabledBy: null,
+        },
+        { new: true },
+      )
       .populate('owner', 'name email')
       .exec();
+    
+    if (!updated) {
+      throw new NotFoundException(`Property with id ${id} not found`);
+    }
+    
+    return this.toDomain(updated);
+  }
+
+  async findById(id: string, tenantId?: string): Promise<Property | null> {
+    const query: any = { _id: new Types.ObjectId(id), deletedAt: null };
+    
+    if (tenantId) {
+      query.tenant = new Types.ObjectId(tenantId);
+    }
+
+    const entity = await this.propertyModel
+      .findOne(query)
+      .populate('owner', 'name email')
+      .populate('tenant', 'name slug')
+      .populate('disabledBy', 'name email')
+      .exec();
+    
     return entity ? this.toDomain(entity) : null;
   }
 
-  async findByOwner(ownerId: string, status?: PropertyStatus): Promise<Property[]> {
-    const query: any = { owner: new Types.ObjectId(ownerId), deletedAt: null };
-    if (status) query.status = status;
+  async findByOwner(ownerId: string, tenantId?: string, status?: PropertyStatus): Promise<Property[]> {
+    const query: any = { 
+      owner: new Types.ObjectId(ownerId), 
+      deletedAt: null,
+    };
+    
+    if (tenantId) {
+      query.tenant = new Types.ObjectId(tenantId);
+    }
+    
+    if (status) {
+      query.status = status;
+    }
 
     const entities = await this.propertyModel
       .find(query)
       .sort({ createdAt: -1 })
       .populate('owner', 'name email')
+      .populate('tenant', 'name slug')
       .exec();
     
     return entities.map(entity => this.toDomain(entity));
   }
 
-  async findAllPaginated(query: QueryPropertyDto): Promise<{
+  async findAllPaginated(query: QueryPropertyDto, tenantId?: string): Promise<{
     data: Property[];
     total: number;
     page: number;
@@ -121,13 +230,30 @@ export class PropertyRepository implements IPropertyRepository {
   }> {
     const filter: any = { deletedAt: null };
     
-    if (query.status) filter.status = query.status;
-    if (query.city) filter['location.city'] = new RegExp(query.city, 'i');
-    if (query.type) filter.type = query.type;
+    if (tenantId) {
+      filter.tenant = new Types.ObjectId(tenantId);
+    }
+    
+    if (query.status) {
+      filter.status = query.status;
+    }
+    
+    if (query.city) {
+      filter['location.city'] = new RegExp(query.city, 'i');
+    }
+    
+    if (query.type) {
+      filter.type = query.type;
+    }
+    
     if (query.minPrice || query.maxPrice) {
       filter.price = {};
-      if (query.minPrice) filter.price.$gte = Number(query.minPrice);
-      if (query.maxPrice) filter.price.$lte = Number(query.maxPrice);
+      if (query.minPrice !== undefined) {
+        filter.price.$gte = Number(query.minPrice);
+      }
+      if (query.maxPrice !== undefined) {
+        filter.price.$lte = Number(query.maxPrice);
+      }
     }
 
     const page = query.page ?? 1;
@@ -136,13 +262,13 @@ export class PropertyRepository implements IPropertyRepository {
     const sortBy = query.sortBy ?? 'createdAt';
     const sortOrder = query.sortOrder === 'asc' ? 1 : -1;
     
-    // Fix: Cast to Record<string, 1 | -1> to satisfy Mongoose type
     const sort: Record<string, 1 | -1> = { [sortBy]: sortOrder as 1 | -1 };
 
     const [entities, total] = await Promise.all([
       this.propertyModel
         .find(filter)
         .populate('owner', 'name email')
+        .populate('tenant', 'name slug')
         .sort(sort)
         .skip(skip)
         .limit(limit)
@@ -158,28 +284,57 @@ export class PropertyRepository implements IPropertyRepository {
     };
   }
 
-  async findFavorites(userId: string): Promise<Property[]> {
+  async findFavorites(userId: string, tenantId?: string): Promise<Property[]> {
+    const query: any = {
+      favoritedBy: new Types.ObjectId(userId),
+      status: PropertyStatus.PUBLISHED,
+      deletedAt: null,
+    };
+    
+    if (tenantId) {
+      query.tenant = new Types.ObjectId(tenantId);
+    }
+
     const entities = await this.propertyModel
-      .find({
-        favoritedBy: new Types.ObjectId(userId),
-        status: PropertyStatus.PUBLISHED,
-        deletedAt: null,
-      })
+      .find(query)
       .populate('owner', 'name email')
+      .populate('tenant', 'name slug')
       .exec();
     
     return entities.map(entity => this.toDomain(entity));
   }
 
-  async isFavorited(propertyId: string, userId: string): Promise<boolean> {
-    const property = await this.propertyModel.findById(propertyId);
-    return property?.favoritedBy.some(id => 
+  async isFavorited(propertyId: string, userId: string, tenantId?: string): Promise<boolean> {
+    const query: any = { 
+      _id: new Types.ObjectId(propertyId),
+      deletedAt: null,
+    };
+    
+    if (tenantId) {
+      query.tenant = new Types.ObjectId(tenantId);
+    }
+
+    const property = await this.propertyModel.findOne(query);
+    if (!property) {
+      return false;
+    }
+
+    return property.favoritedBy.some(id => 
       id.equals(new Types.ObjectId(userId))
-    ) || false;
+    );
   }
 
-  async addToFavorites(propertyId: string, userId: string): Promise<Property> {
-    const property = await this.propertyModel.findById(propertyId);
+  async addToFavorites(propertyId: string, userId: string, tenantId?: string): Promise<Property> {
+    const query: any = { 
+      _id: new Types.ObjectId(propertyId),
+      deletedAt: null,
+    };
+    
+    if (tenantId) {
+      query.tenant = new Types.ObjectId(tenantId);
+    }
+
+    const property = await this.propertyModel.findOne(query);
     
     if (!property) {
       throw new NotFoundException(`Property with id ${propertyId} not found`);
@@ -196,8 +351,17 @@ export class PropertyRepository implements IPropertyRepository {
     return this.toDomain(property);
   }
 
-  async removeFromFavorites(propertyId: string, userId: string): Promise<Property> {
-    const property = await this.propertyModel.findById(propertyId);
+  async removeFromFavorites(propertyId: string, userId: string, tenantId?: string): Promise<Property> {
+    const query: any = { 
+      _id: new Types.ObjectId(propertyId),
+      deletedAt: null,
+    };
+    
+    if (tenantId) {
+      query.tenant = new Types.ObjectId(tenantId);
+    }
+
+    const property = await this.propertyModel.findOne(query);
     
     if (!property) {
       throw new NotFoundException(`Property with id ${propertyId} not found`);
@@ -211,11 +375,156 @@ export class PropertyRepository implements IPropertyRepository {
     );
 
     if (property.favoritedBy.length < initialLength) {
-      property.favoritesCount -= 1;
+      property.favoritesCount = Math.max(0, property.favoritesCount - 1);
       await property.save();
     }
 
     return this.toDomain(property);
+  }
+
+  async incrementViews(id: string, tenantId?: string): Promise<void> {
+    const query: any = { _id: new Types.ObjectId(id), deletedAt: null };
+    
+    if (tenantId) {
+      query.tenant = new Types.ObjectId(tenantId);
+    }
+
+    await this.propertyModel.findOneAndUpdate(
+      query,
+      { $inc: { views: 1 } },
+      { new: true },
+    ).exec();
+  }
+
+  async getTenantMetrics(tenantId: string): Promise<any> {
+    const [
+      totalProperties,
+      publishedProperties,
+      draftProperties,
+      archivedProperties,
+      disabledProperties,
+      totalViews,
+      totalFavorites,
+      recentProperties,
+      topViewedProperties,
+    ] = await Promise.all([
+      // Counts
+      this.propertyModel.countDocuments({ 
+        tenant: new Types.ObjectId(tenantId),
+        deletedAt: null,
+      }),
+      this.propertyModel.countDocuments({ 
+        tenant: new Types.ObjectId(tenantId),
+        status: PropertyStatus.PUBLISHED,
+        deletedAt: null,
+      }),
+      this.propertyModel.countDocuments({ 
+        tenant: new Types.ObjectId(tenantId),
+        status: PropertyStatus.DRAFT,
+        deletedAt: null,
+      }),
+      this.propertyModel.countDocuments({ 
+        tenant: new Types.ObjectId(tenantId),
+        status: PropertyStatus.ARCHIVED,
+        deletedAt: null,
+      }),
+      this.propertyModel.countDocuments({ 
+        tenant: new Types.ObjectId(tenantId),
+        status: PropertyStatus.DISABLED,
+        deletedAt: null,
+      }),
+      
+      // Aggregates
+      this.propertyModel.aggregate([
+        {
+          $match: {
+            tenant: new Types.ObjectId(tenantId),
+            deletedAt: null,
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalViews: { $sum: '$views' }
+          }
+        }
+      ]),
+      
+      this.propertyModel.aggregate([
+        {
+          $match: {
+            tenant: new Types.ObjectId(tenantId),
+            deletedAt: null,
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalFavorites: { $sum: '$favoritesCount' }
+          }
+        }
+      ]),
+      
+      // Recent data
+      this.propertyModel
+        .find({
+          tenant: new Types.ObjectId(tenantId),
+          deletedAt: null,
+        })
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .populate('owner', 'name email')
+        .exec(),
+      
+      this.propertyModel
+        .find({
+          tenant: new Types.ObjectId(tenantId),
+          deletedAt: null,
+          status: PropertyStatus.PUBLISHED,
+        })
+        .sort({ views: -1 })
+        .limit(5)
+        .populate('owner', 'name email')
+        .exec(),
+    ]);
+
+    return {
+      tenantId,
+      summary: {
+        properties: {
+          total: totalProperties,
+          published: publishedProperties,
+          draft: draftProperties,
+          archived: archivedProperties,
+          disabled: disabledProperties,
+        },
+        engagement: {
+          totalViews: totalViews[0]?.totalViews || 0,
+          totalFavorites: totalFavorites[0]?.totalFavorites || 0,
+        },
+      },
+      recentActivity: {
+        recentProperties: recentProperties.map(prop => ({
+          id: prop._id.toString(),
+          title: prop.title,
+          status: prop.status,
+          views: prop.views,
+          createdAt: prop.createdAt,
+          owner: {
+            id: (prop.owner as any)._id.toString(),
+            name: (prop.owner as any).name,
+          },
+        })),
+        topViewedProperties: topViewedProperties.map(prop => ({
+          id: prop._id.toString(),
+          title: prop.title,
+          views: prop.views,
+          favoritesCount: prop.favoritesCount,
+          status: prop.status,
+        })),
+      },
+      updatedAt: new Date(),
+    };
   }
 
   private toDomain(entity: PropertyEntity): Property {
@@ -224,7 +533,6 @@ export class PropertyRepository implements IPropertyRepository {
     property.title = entity.title;
     property.description = entity.description;
     
-    // Fix: Ensure all required properties are present
     property.location = {
       address: entity.location.address || '',
       city: entity.location.city || '',
@@ -249,8 +557,14 @@ export class PropertyRepository implements IPropertyRepository {
     property.metadata = entity.metadata;
     property.publishedAt = entity.publishedAt;
     property.deletedAt = entity.deletedAt;
+    property.disabledAt = entity.disabledAt;
+    property.disabledBy = entity.disabledBy?.toString();
     property.createdAt = entity.createdAt;
     property.updatedAt = entity.updatedAt;
+    
+    // Add tenantId to domain
+    (property as any).tenantId = entity.tenant?.toString();
+    
     return property;
   }
 
@@ -269,7 +583,7 @@ export class PropertyRepository implements IPropertyRepository {
       };
     }
     
-    return {
+    const entity: Partial<PropertyEntity> = {
       title: property.title,
       description: property.description,
       location,
@@ -283,6 +597,13 @@ export class PropertyRepository implements IPropertyRepository {
       metadata: property.metadata,
       publishedAt: property.publishedAt,
       deletedAt: property.deletedAt,
+      disabledAt: property.disabledAt,
     };
+    
+    if (property.disabledBy) {
+      entity.disabledBy = new Types.ObjectId(property.disabledBy);
+    }
+    
+    return entity;
   }
 }

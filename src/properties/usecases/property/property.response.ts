@@ -1,4 +1,3 @@
-
 import { Property, PropertyStatus, PropertyType } from '../../domain/property/Property';
 import { PropertyEntity } from '../../persistence/property/property.entity';
 import { Types } from 'mongoose';
@@ -34,6 +33,11 @@ export class PropertyResponse {
   updatedAt: Date;
   isFavorited?: boolean;
   favoritedByCurrentUser?: boolean;
+  tenant?: {
+    id: string;
+    name: string;
+    slug: string;
+  };
 
   static fromEntity(entity: PropertyEntity, userId?: string): PropertyResponse {
     const response = new PropertyResponse();
@@ -71,6 +75,15 @@ export class PropertyResponse {
         id: entity.owner.toString(),
         name: '',
         email: '',
+      };
+    }
+    
+    // Check if tenant is populated
+    if (entity.tenant && typeof entity.tenant === 'object' && 'name' in entity.tenant) {
+      response.tenant = {
+        id: (entity.tenant as any)._id.toString(),
+        name: (entity.tenant as any).name,
+        slug: (entity.tenant as any).slug,
       };
     }
     
@@ -118,6 +131,15 @@ export class PropertyResponse {
       response.isFavorited = (property as any).favoritedBy.some((id: any) => 
         id.toString() === userId
       );
+    }
+    
+    // Add tenant information if available
+    if ((property as any).tenantId) {
+      response.tenant = {
+        id: (property as any).tenantId,
+        name: '',
+        slug: '',
+      };
     }
     
     return response;

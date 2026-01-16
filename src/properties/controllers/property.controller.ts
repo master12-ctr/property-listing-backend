@@ -10,6 +10,8 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  BadRequestException,
+  Request,
 } from '@nestjs/common';
 import { PropertyCommands } from '../usecases/property/property.commands';
 import { PropertyQueries } from '../usecases/property/property.queries';
@@ -21,6 +23,7 @@ import { CreatePropertyDto } from '../dto/create-property.dto';
 import { GetUser } from 'src/auth/decorators/get-user.decorator';
 import { QueryPropertyDto } from '../dto/query-property.dto';
 import { UpdatePropertyDto } from '../dto/update-property.dto';
+import { MetricsPropertyDto } from '../dto/metrics-property.dto';
 
 @Controller('properties')
 export class PropertyController {
@@ -35,17 +38,25 @@ export class PropertyController {
   async create(
     @Body() createPropertyDto: CreatePropertyDto,
     @GetUser() user: any,
+    @Request() req: any,
   ) {
-    return this.commands.create(createPropertyDto, user.userId);
+    if (!req.tenantId) {
+      throw new BadRequestException('Tenant ID is required');
+    }
+    return this.commands.create(createPropertyDto, user.userId, req.tenantId);
   }
 
   @Get()
-  @UseGuards(JwtAuthGuard)
   async findAll(
     @Query() query: QueryPropertyDto,
-    @GetUser() user: any,
+    @GetUser() user?: any,
+    @Request() req?: any,
   ) {
-    return this.queries.findAll(query, user.userId, user.permissions);
+    const userId = user?.userId;
+    const permissions = user?.permissions || [];
+    const tenantId = req?.tenantId;
+    
+    return this.queries.findAll(query, tenantId, userId, permissions);
   }
 
   @Get('my')
@@ -53,24 +64,38 @@ export class PropertyController {
   async findMyProperties(
     @Query('status') status: string,
     @GetUser() user: any,
+    @Request() req: any,
   ) {
-    return this.queries.findByOwner(user.userId, user.userId, user.permissions);
+    if (!req.tenantId) {
+      throw new BadRequestException('Tenant ID is required');
+    }
+    return this.queries.findByOwner(user.userId, req.tenantId, status);
   }
 
   @Get('favorites')
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @Permissions(Permission.FAVORITE_READ)
-  async findFavorites(@GetUser() user: any) {
-    return this.queries.findFavorites(user.userId);
+  async findFavorites(@GetUser() user: any, @Request() req: any) {
+    if (!req.tenantId) {
+      throw new BadRequestException('Tenant ID is required');
+    }
+    return this.queries.findFavorites(user.userId, req.tenantId);
   }
 
   @Get(':id')
-  @UseGuards(JwtAuthGuard)
   async findOne(
     @Param('id') id: string,
-    @GetUser() user: any,
+    @GetUser() user?: any,
+    @Request() req?: any,
   ) {
-    return this.queries.findById(id, user.userId, user.permissions);
+    const userId = user?.userId;
+    const permissions = user?.permissions || [];
+    const tenantId = req?.tenantId;
+    
+    // Increment view count (optional, can be moved to middleware)
+    await this.queries.incrementViews(id, tenantId);
+    
+    return this.queries.findById(id, tenantId, userId, permissions);
   }
 
   @Patch(':id')
@@ -80,8 +105,18 @@ export class PropertyController {
     @Param('id') id: string,
     @Body() updatePropertyDto: UpdatePropertyDto,
     @GetUser() user: any,
+    @Request() req: any,
   ) {
-    return this.commands.update(id, updatePropertyDto, user.userId, user.permissions);
+    if (!req.tenantId) {
+      throw new BadRequestException('Tenant ID is required');
+    }
+    return this.commands.update(
+      id,
+      updatePropertyDto,
+      user.userId,
+      req.tenantId,
+      user.permissions,
+    );
   }
 
   @Delete(':id')
@@ -91,8 +126,12 @@ export class PropertyController {
   async remove(
     @Param('id') id: string,
     @GetUser() user: any,
+    @Request() req: any,
   ) {
-    await this.commands.delete(id, user.userId, user.permissions);
+    if (!req.tenantId) {
+      throw new BadRequestException('Tenant ID is required');
+    }
+    await this.commands.delete(id, user.userId, req.tenantId, user.permissions);
   }
 
   @Post(':id/publish')
@@ -101,8 +140,12 @@ export class PropertyController {
   async publish(
     @Param('id') id: string,
     @GetUser() user: any,
+    @Request() req: any,
   ) {
-    return this.commands.publish(id, user.userId);
+    if (!req.tenantId) {
+      throw new BadRequestException('Tenant ID is required');
+    }
+    return this.commands.publish(id, user.userId, req.tenantId);
   }
 
   @Post(':id/archive')
@@ -111,8 +154,12 @@ export class PropertyController {
   async archive(
     @Param('id') id: string,
     @GetUser() user: any,
+    @Request() req: any,
   ) {
-    return this.commands.archive(id, user.userId);
+    if (!req.tenantId) {
+      throw new BadRequestException('Tenant ID is required');
+    }
+    return this.commands.archive(id, user.userId, req.tenantId);
   }
 
   @Post(':id/favorite')
@@ -121,8 +168,12 @@ export class PropertyController {
   async addFavorite(
     @Param('id') id: string,
     @GetUser() user: any,
+    @Request() req: any,
   ) {
-    return this.commands.addToFavorites(id, user.userId);
+    if (!req.tenantId) {
+      throw new BadRequestException('Tenant ID is required');
+    }
+    return this.commands.addToFavorites(id, user.userId, req.tenantId);
   }
 
   @Delete(':id/favorite')
@@ -132,8 +183,12 @@ export class PropertyController {
   async removeFavorite(
     @Param('id') id: string,
     @GetUser() user: any,
+    @Request() req: any,
   ) {
-    await this.commands.removeFromFavorites(id, user.userId);
+    if (!req.tenantId) {
+      throw new BadRequestException('Tenant ID is required');
+    }
+    await this.commands.removeFromFavorites(id, user.userId, req.tenantId);
   }
 
   @Get('metrics/summary')
@@ -143,39 +198,90 @@ export class PropertyController {
     return this.queries.getMetrics(user.permissions);
   }
 
-
-
-  
   @Post(':id/disable')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
-@Permissions(Permission.PROPERTY_UPDATE_ALL)
-async disable(
-  @Param('id') id: string,
-  @GetUser() user: any,
-) {
-  return this.commands.disable(id, user.userId, user.permissions);
-}
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @Permissions(Permission.PROPERTY_UPDATE_ALL)
+  async disable(
+    @Param('id') id: string,
+    @GetUser() user: any,
+    @Request() req: any,
+  ) {
+    if (!req.tenantId) {
+      throw new BadRequestException('Tenant ID is required');
+    }
+    return this.commands.disable(
+      id,
+      user.userId,
+      req.tenantId,
+      user.permissions,
+    );
+  }
 
-@Post(':id/enable')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
-@Permissions(Permission.PROPERTY_UPDATE_ALL)
-async enable(
-  @Param('id') id: string,
-  @GetUser() user: any,
-) {
-  return this.commands.enable(id, user.userId, user.permissions);
-}
+  @Post(':id/enable')
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @Permissions(Permission.PROPERTY_UPDATE_ALL)
+  async enable(
+    @Param('id') id: string,
+    @GetUser() user: any,
+    @Request() req: any,
+  ) {
+    if (!req.tenantId) {
+      throw new BadRequestException('Tenant ID is required');
+    }
+    return this.commands.enable(
+      id,
+      user.userId,
+      req.tenantId,
+      user.permissions,
+    );
+  }
 
-@Get('metrics/property')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
-@Permissions(Permission.SYSTEM_METRICS_READ)
-async getPropertyMetrics(
-  @Query('timeRange') timeRange: 'day' | 'week' | 'month' = 'week',
-  @GetUser() user: any,
-) {
-  return this.queries.getPropertyMetrics(timeRange);
-}
+  @Get('metrics/property')
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @Permissions(Permission.SYSTEM_METRICS_READ)
+  async getPropertyMetrics(
+    @Query() metricsDto: MetricsPropertyDto,
+    @GetUser() user: any,
+  ) {
+    return this.queries.getPropertyMetrics(metricsDto.timeRange);
+  }
 
+  @Get('admin/metrics/tenant')
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @Permissions(Permission.SYSTEM_METRICS_READ)
+  async getTenantMetrics(@GetUser() user: any, @Request() req: any) {
+    if (!req.tenantId) {
+      throw new BadRequestException('Tenant ID is required');
+    }
+    return this.queries.getTenantMetrics(req.tenantId);
+  }
 
+  @Get(':id/favorite/status')
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @Permissions(Permission.FAVORITE_READ)
+  async getFavoriteStatus(
+    @Param('id') id: string,
+    @GetUser() user: any,
+    @Request() req: any,
+  ) {
+    if (!req.tenantId) {
+      throw new BadRequestException('Tenant ID is required');
+    }
+    const isFavorited = await this.queries.isFavorited(
+      id,
+      user.userId,
+      req.tenantId,
+    );
+    return { isFavorited };
+  }
 
+  @Get(':id/view')
+  async incrementView(
+    @Param('id') id: string,
+    @Request() req: any,
+  ) {
+    const tenantId = req?.tenantId;
+    await this.queries.incrementViews(id, tenantId);
+    return { success: true, message: 'View count incremented' };
+  }
 }

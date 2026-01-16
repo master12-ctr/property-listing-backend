@@ -1,15 +1,18 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { User, UserDocument } from './schemas/user.schema';
 import { Role, RoleDocument } from '../roles/schemas/role.schema';
 import * as bcrypt from 'bcrypt';
+import { TenantsService } from 'src/tenants/tenants.service';
+import { CreateUserDto } from './dto/create-user.dto';
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Role.name) private roleModel: Model<RoleDocument>,
+    @Inject(TenantsService) private tenantsService: TenantsService,
   ) {}
 
   async findByEmail(email: string): Promise<UserDocument | null> {
@@ -43,36 +46,61 @@ export class UsersService {
       .exec();
   }
 
-  async create(userData: Partial<User>): Promise<UserDocument> {
+
+
+    async create(createUserDto: CreateUserDto): Promise<UserDocument> {
     // Hash password if provided
-    if (userData.password) {
-      userData.password = await bcrypt.hash(userData.password, 10);
-    }
+    const hashedPassword = createUserDto.password 
+      ? await bcrypt.hash(createUserDto.password, 10)
+      : undefined;
 
     // Handle role assignment
-    const { roleName, ...restData } = userData as any;
+    let roles: Types.ObjectId[] = [];
     
-    const roleData: Partial<User> = restData;
-    
-    // If roleName is provided, find the role
-    if (roleName) {
-      const role = await this.roleModel.findOne({ name: roleName });
+    if (createUserDto.roleName) {
+      const role = await this.roleModel.findOne({ name: createUserDto.roleName });
       if (role) {
-        roleData.roles = [role._id];
+        roles = [role._id];
       }
     }
     
     // Set default role if not provided
-    if (!roleData.roles || roleData.roles.length === 0) {
+    if (roles.length === 0) {
       const defaultRole = await this.roleModel.findOne({ name: 'regular_user' });
       if (defaultRole) {
-        roleData.roles = [defaultRole._id];
+        roles = [defaultRole._id];
       }
     }
 
-    const user = new this.userModel(roleData);
+    // Get or create default tenant
+    let tenantId = createUserDto.tenant;
+    if (!tenantId) {
+      const defaultTenant = await this.tenantsService.getDefaultTenant();
+      tenantId = defaultTenant._id;
+    }
+
+    const userData = {
+      name: createUserDto.name,
+      email: createUserDto.email,
+      password: hashedPassword,
+      roles,
+      tenant: tenantId,
+      profileImage: createUserDto.profileImage,
+      metadata: createUserDto.metadata,
+      isActive: true,
+    };
+
+    const user = new this.userModel(userData);
     return user.save();
   }
+
+
+private async getDefaultTenant(): Promise<any> {
+  // In a real system, you might have a Tenant model
+  // For now, return null or create a default tenant
+  return null;
+}
+
 
   async update(id: string, updateData: Partial<User>): Promise<UserDocument> {
     // Don't allow password update through this method

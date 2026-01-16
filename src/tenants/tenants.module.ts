@@ -1,0 +1,23 @@
+
+import { Module, MiddlewareConsumer, RequestMethod } from '@nestjs/common';
+import { MongooseModule } from '@nestjs/mongoose';
+import { Tenant, TenantSchema } from './schemas/tenant.schema';
+import { TenantMiddleware } from './tenant.middleware';
+import { TenantsService } from './tenants.service';
+import { TenantsController } from './tenants.controller';
+
+@Module({
+  imports: [
+    MongooseModule.forFeature([{ name: Tenant.name, schema: TenantSchema }]),
+  ],
+  providers: [TenantsService],
+  controllers: [TenantsController],
+  exports: [TenantsService, MongooseModule],
+})
+export class TenantsModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(TenantMiddleware)
+      .forRoutes({ path: '*', method: RequestMethod.ALL });
+  }
+}

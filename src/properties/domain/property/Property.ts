@@ -1,4 +1,3 @@
-// ./properties/domain/property/Property.ts
 export enum PropertyStatus {
   DRAFT = 'draft',
   PUBLISHED = 'published',
@@ -33,6 +32,7 @@ export class Property {
   status: PropertyStatus;
   type: PropertyType;
   ownerId: string;
+  tenantId?: string; // Added for multi-tenancy
   views: number = 0;
   favoritesCount: number = 0;
   favoritedBy: string[] = [];
@@ -114,5 +114,10 @@ export class Property {
       this.favoritedBy.splice(index, 1);
       this.favoritesCount = Math.max(0, this.favoritesCount - 1);
     }
+  }
+
+  belongsToTenant(tenantId?: string): boolean {
+    if (!tenantId) return true; 
+    return this.tenantId === tenantId;
   }
 }

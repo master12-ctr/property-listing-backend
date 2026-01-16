@@ -1,10 +1,10 @@
+
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 import { PropertyStatus, PropertyType } from '../../domain/property/Property';
 
 export type PropertyDocument = PropertyEntity & Document;
 
-// Define interface for transformed object
 interface PropertyTransformed {
   [key: string]: any;
   __v?: number;
@@ -15,7 +15,6 @@ interface PropertyTransformed {
   toJSON: {
     virtuals: true,
     transform: (_, ret: PropertyTransformed) => {
-      // Use destructuring to safely remove __v
       const { __v, ...rest } = ret;
       return rest;
     },
@@ -81,6 +80,9 @@ export class PropertyEntity extends Document {
   })
   owner: Types.ObjectId;
 
+  @Prop({ type: Types.ObjectId, ref: 'Tenant', required: true, index: true })
+  tenant: Types.ObjectId;
+
   @Prop({ default: 0 })
   views: number;
 
@@ -97,6 +99,12 @@ export class PropertyEntity extends Document {
   publishedAt?: Date;
 
   @Prop()
+  disabledAt?: Date;
+
+  @Prop({ type: Types.ObjectId, ref: 'User' })
+  disabledBy?: Types.ObjectId;
+
+  @Prop()
   deletedAt?: Date;
 
   @Prop({ default: true })
@@ -109,26 +117,40 @@ export class PropertyEntity extends Document {
 export const PropertySchema = SchemaFactory.createForClass(PropertyEntity);
 
 // Compound indexes
-PropertySchema.index({ status: 1, deletedAt: 1 });
-PropertySchema.index({ owner: 1, status: 1 });
-PropertySchema.index({ 'location.city': 1, status: 1 });
-PropertySchema.index({ price: 1, status: 1 });
+PropertySchema.index({ tenant: 1, status: 1 });
+PropertySchema.index({ tenant: 1, owner: 1, status: 1 });
+PropertySchema.index({ tenant: 1, 'location.city': 1, status: 1 });
+PropertySchema.index({ tenant: 1, price: 1, status: 1 });
 PropertySchema.index({ 'location.coordinates': '2dsphere' });
 
-// Pre-find hooks for soft delete
+// Pre-find hooks for soft delete and tenant filtering
 PropertySchema.pre('find', function() {
-  this.where({ deletedAt: null });
+  const tenantId = this.getOptions().tenantId;
+  if (tenantId) {
+    this.where({ tenant: tenantId, deletedAt: null });
+  } else {
+    this.where({ deletedAt: null });
+  }
 });
 
 PropertySchema.pre('findOne', function() {
-  this.where({ deletedAt: null });
+  const tenantId = this.getOptions().tenantId;
+  if (tenantId) {
+    this.where({ tenant: tenantId, deletedAt: null });
+  } else {
+    this.where({ deletedAt: null });
+  }
 });
 
 PropertySchema.pre('countDocuments', function() {
-  this.where({ deletedAt: null });
+  const tenantId = this.getOptions().tenantId;
+  if (tenantId) {
+    this.where({ tenant: tenantId, deletedAt: null });
+  } else {
+    this.where({ deletedAt: null });
+  }
 });
 
-// Add method to remove __v
 PropertySchema.methods.toJSON = function() {
   const obj = this.toObject();
   delete obj.__v;

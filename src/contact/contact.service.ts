@@ -5,19 +5,19 @@ import { Model, Types } from 'mongoose';
 import { Contact, ContactDocument } from './schemas/contact.schema';
 import { CreateContactDto } from './dto/create-contact.dto';
 import { UsersService } from '../users/users.service';
-import { PropertyRepository } from '../properties/persistence/property/property.repository';
+import { PropertyEntity, PropertyDocument } from '../properties/persistence/property/property.entity';
 
 @Injectable()
 export class ContactService {
   constructor(
     @InjectModel(Contact.name) private contactModel: Model<ContactDocument>,
     private usersService: UsersService,
-    private propertyRepository: PropertyRepository,
+    @InjectModel(PropertyEntity.name) private propertyModel: Model<PropertyDocument>,
   ) {}
 
   async createContact(createContactDto: CreateContactDto, fromUserId: string): Promise<ContactDocument> {
     // Get the property to find the owner
-    const property = await this.propertyRepository.findById(createContactDto.propertyId);
+    const property = await this.propertyModel.findById(createContactDto.propertyId);
     if (!property) {
       throw new NotFoundException('Property not found');
     }
@@ -28,7 +28,7 @@ export class ContactService {
     }
 
     // Get property owner
-    const ownerId = property.ownerId;
+    const ownerId = property.owner.toString();
 
     // Create contact message
     const contact = new this.contactModel({

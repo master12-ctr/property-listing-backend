@@ -1,27 +1,36 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { Property, PropertyStatus } from '../../domain/property/Property';
 import { CreatePropertyDto } from '../../dto/create-property.dto';
 import { UpdatePropertyDto } from '../../dto/update-property.dto';
 import { PropertyRepository } from '../../persistence/property/property.repository';
 import { PropertyResponse } from './property.response';
 import { LoggerService } from '../../../shared/infrastructure/logger/logger.service';
-import { Permission } from 'src/shared/constants/permissions';
+import { Permission } from '../../../shared/constants/permissions';
+import { ImagesService } from '../../../images/images.service';
 
 @Injectable()
 export class PropertyCommands {
   constructor(
     private readonly propertyRepository: PropertyRepository,
     private readonly logger: LoggerService,
+    @Inject(forwardRef(() => ImagesService))
+    private readonly imagesService: ImagesService,
   ) {}
 
-  async create(command: CreatePropertyDto, userId: string): Promise<PropertyResponse> {
-    this.logger.log('PropertyCommands', `Creating property for user ${userId}`);
+  async create(command: CreatePropertyDto, userId: string, tenantId: string): Promise<PropertyResponse> {
+    this.logger.log('PropertyCommands', `Creating property for user ${userId} in tenant ${tenantId}`);
     
+    // Validate images if provided
+    if (command.images && command.images.length > 0) {
+      for (const imageUrl of command.images) {
+        await this.validateImageUrl(imageUrl);
+      }
+    }
+
     const property = new Property();
     property.title = command.title;
     property.description = command.description;
     
-    // Ensure location has all required properties
     property.location = {
       address: command.location.address,
       city: command.location.city,
@@ -29,7 +38,6 @@ export class PropertyCommands {
       state: command.location.state,
     };
     
-    // Handle coordinates if provided
     if (command.location.coordinates) {
       property.location.coordinates = {
         type: command.location.coordinates.type || 'Point',
@@ -42,9 +50,10 @@ export class PropertyCommands {
     property.type = command.type;
     property.status = command.status || PropertyStatus.DRAFT;
     property.ownerId = userId;
+    property.tenantId = tenantId;
     property.metadata = command.metadata;
 
-    const created = await this.propertyRepository.create(property);
+    const created = await this.propertyRepository.create(property, tenantId);
     
     this.logger.log('PropertyCommands', `Property ${created.id} created successfully`);
     return PropertyResponse.fromDomain(created);
@@ -54,17 +63,18 @@ export class PropertyCommands {
     propertyId: string, 
     command: UpdatePropertyDto, 
     userId: string,
+    tenantId: string,
     userPermissions: string[],
   ): Promise<PropertyResponse> {
-    const property = await this.propertyRepository.findById(propertyId);
+    const property = await this.propertyRepository.findById(propertyId, tenantId);
     
     if (!property) {
       throw new BadRequestException('Property not found');
     }
 
     // Permission check
-    const canUpdateAll = userPermissions.includes('property.update.all');
-    const canUpdateOwn = userPermissions.includes('property.update.own');
+    const canUpdateAll = userPermissions.includes(Permission.PROPERTY_UPDATE_ALL);
+    const canUpdateOwn = userPermissions.includes(Permission.PROPERTY_UPDATE_OWN);
     
     if (!canUpdateAll && (!canUpdateOwn || !property.isOwnedBy(userId))) {
       throw new BadRequestException('Insufficient permissions to update property');
@@ -103,14 +113,14 @@ export class PropertyCommands {
     if (command.type !== undefined) property.type = command.type;
     if (command.metadata !== undefined) property.metadata = command.metadata;
 
-    const updated = await this.propertyRepository.update(propertyId, property);
+    const updated = await this.propertyRepository.update(propertyId, property, tenantId);
     
     this.logger.log('PropertyCommands', `Property ${propertyId} updated by user ${userId}`);
     return PropertyResponse.fromDomain(updated);
   }
 
-  async publish(propertyId: string, userId: string): Promise<PropertyResponse> {
-    const property = await this.propertyRepository.findById(propertyId);
+  async publish(propertyId: string, userId: string, tenantId: string): Promise<PropertyResponse> {
+    const property = await this.propertyRepository.findById(propertyId, tenantId);
     
     if (!property) {
       throw new BadRequestException('Property not found');
@@ -120,12 +130,12 @@ export class PropertyCommands {
       throw new BadRequestException('Only property owners can publish properties');
     }
 
-    const published = await this.propertyRepository.publish(propertyId);
+    const published = await this.propertyRepository.publish(propertyId, tenantId);
     return PropertyResponse.fromDomain(published);
   }
 
-  async archive(propertyId: string, userId: string): Promise<PropertyResponse> {
-    const property = await this.propertyRepository.findById(propertyId);
+  async archive(propertyId: string, userId: string, tenantId: string): Promise<PropertyResponse> {
+    const property = await this.propertyRepository.findById(propertyId, tenantId);
     
     if (!property) {
       throw new BadRequestException('Property not found');
@@ -135,88 +145,90 @@ export class PropertyCommands {
       throw new BadRequestException('Only property owners can archive properties');
     }
 
-    const archived = await this.propertyRepository.archive(propertyId);
+    const archived = await this.propertyRepository.archive(propertyId, tenantId);
     return PropertyResponse.fromDomain(archived);
   }
 
   async delete(
     propertyId: string, 
     userId: string,
+    tenantId: string,
     userPermissions: string[],
   ): Promise<void> {
-    const property = await this.propertyRepository.findById(propertyId);
+    const property = await this.propertyRepository.findById(propertyId, tenantId);
     
     if (!property) {
       throw new BadRequestException('Property not found');
     }
 
     // Permission check
-    const canDeleteAll = userPermissions.includes('property.delete.all');
-    const canDeleteOwn = userPermissions.includes('property.delete.own');
+    const canDeleteAll = userPermissions.includes(Permission.PROPERTY_DELETE_ALL);
+    const canDeleteOwn = userPermissions.includes(Permission.PROPERTY_DELETE_OWN);
     
     if (!canDeleteAll && (!canDeleteOwn || !property.isOwnedBy(userId))) {
       throw new BadRequestException('Insufficient permissions to delete property');
     }
 
-    await this.propertyRepository.softDelete(propertyId);
+    await this.propertyRepository.softDelete(propertyId, tenantId);
     
     this.logger.log('PropertyCommands', `Property ${propertyId} soft-deleted by user ${userId}`);
   }
 
-  async addToFavorites(propertyId: string, userId: string): Promise<PropertyResponse> {
-    const property = await this.propertyRepository.addToFavorites(propertyId, userId);
+  async addToFavorites(propertyId: string, userId: string, tenantId: string): Promise<PropertyResponse> {
+    const property = await this.propertyRepository.addToFavorites(propertyId, userId, tenantId);
     return PropertyResponse.fromDomain(property);
   }
 
-  async removeFromFavorites(propertyId: string, userId: string): Promise<PropertyResponse> {
-    const property = await this.propertyRepository.removeFromFavorites(propertyId, userId);
+  async removeFromFavorites(propertyId: string, userId: string, tenantId: string): Promise<PropertyResponse> {
+    const property = await this.propertyRepository.removeFromFavorites(propertyId, userId, tenantId);
     return PropertyResponse.fromDomain(property);
   }
-
-
-
 
   async disable(
-  propertyId: string, 
-  userId: string,
-  userPermissions: string[],
-): Promise<PropertyResponse> {
-  if (!userPermissions.includes(Permission.PROPERTY_UPDATE_ALL)) {
-    throw new BadRequestException('Only admins can disable properties');
+    propertyId: string, 
+    userId: string,
+    tenantId: string,
+    userPermissions: string[],
+  ): Promise<PropertyResponse> {
+    if (!userPermissions.includes(Permission.PROPERTY_UPDATE_ALL)) {
+      throw new BadRequestException('Only admins can disable properties');
+    }
+
+    const property = await this.propertyRepository.findById(propertyId, tenantId);
+    if (!property) {
+      throw new BadRequestException('Property not found');
+    }
+
+    const disabled = await this.propertyRepository.disable(propertyId, userId, tenantId);
+    return PropertyResponse.fromDomain(disabled);
   }
 
-  const property = await this.propertyRepository.findById(propertyId);
-  if (!property) {
-    throw new BadRequestException('Property not found');
+  async enable(
+    propertyId: string, 
+    userId: string,
+    tenantId: string,
+    userPermissions: string[],
+  ): Promise<PropertyResponse> {
+    if (!userPermissions.includes(Permission.PROPERTY_UPDATE_ALL)) {
+      throw new BadRequestException('Only admins can enable properties');
+    }
+
+    const property = await this.propertyRepository.findById(propertyId, tenantId);
+    if (!property) {
+      throw new BadRequestException('Property not found');
+    }
+
+    const enabled = await this.propertyRepository.enable(propertyId, tenantId);
+    return PropertyResponse.fromDomain(enabled);
   }
 
-  property.disable(userId);
-  const updated = await this.propertyRepository.update(propertyId, property);
-  
-  this.logger.log('PropertyCommands', `Property ${propertyId} disabled by admin ${userId}`);
-  return PropertyResponse.fromDomain(updated);
-}
-
-async enable(
-  propertyId: string, 
-  userId: string,
-  userPermissions: string[],
-): Promise<PropertyResponse> {
-  if (!userPermissions.includes(Permission.PROPERTY_UPDATE_ALL)) {
-    throw new BadRequestException('Only admins can enable properties');
+  private async validateImageUrl(url: string): Promise<void> {
+    // Validate that the URL is from our Cloudinary account
+    if (!url.includes('cloudinary.com')) {
+      throw new BadRequestException('Invalid image URL. Must be from Cloudinary');
+    }
+    
+    // You could add more validation here
+    // For example, check if the image exists in Cloudinary
   }
-
-  const property = await this.propertyRepository.findById(propertyId);
-  if (!property) {
-    throw new BadRequestException('Property not found');
-  }
-
-  property.enable();
-  const updated = await this.propertyRepository.update(propertyId, property);
-  
-  this.logger.log('PropertyCommands', `Property ${propertyId} enabled by admin ${userId}`);
-  return PropertyResponse.fromDomain(updated);
-}
-
-
 }

@@ -1,5 +1,5 @@
 
-import { Module } from '@nestjs/common';
+import { Module, MiddlewareConsumer, RequestMethod } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -14,6 +14,9 @@ import { ImagesModule } from './images/images.module';
 import { FavoritesModule } from './favorites/favorites.module';
 import { ContactModule } from './contact/contact.module';
 import { MetricsModule } from './metrics/metrics.module';
+import { TenantsModule } from './tenants/tenants.module';
+import { SeedsModule } from './seeds/seeds.module';
+import { TenantMiddleware } from './tenants/tenant.middleware';
 
 @Module({
   imports: [
@@ -23,6 +26,10 @@ import { MetricsModule } from './metrics/metrics.module';
         ? `.env.${process.env.NODE_ENV}` 
         : ['.env.development', '.env'],
       expandVariables: true,
+      validationOptions: {
+        allowUnknown: false,
+        abortEarly: true,
+      },
     }),
     ThrottlerModule.forRoot([{
       ttl: 60000,
@@ -32,6 +39,8 @@ import { MetricsModule } from './metrics/metrics.module';
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
         uri: configService.get<string>('MONGODB_URI', 'mongodb://localhost:27017/property_listing'),
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
       }),
       inject: [ConfigService],
     }),
@@ -45,6 +54,14 @@ import { MetricsModule } from './metrics/metrics.module';
     FavoritesModule,
     ContactModule,
     MetricsModule,
+    TenantsModule,
+    SeedsModule,
   ],
 })
-export class AppModule {}
+export class AppModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(TenantMiddleware)
+      .forRoutes({ path: '*', method: RequestMethod.ALL });
+  }
+}

@@ -1,7 +1,8 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
-import * as bcrypt from 'bcrypt';
+import { CreateUserDto } from '../users/dto/create-user.dto';
+import { RegisterDto } from 'src/roles/dto/register.dto';
 
 @Injectable()
 export class AuthService {
@@ -25,13 +26,13 @@ export class AuthService {
   }
 
   async login(user: any) {
-    // Get fresh permissions
     const permissions = await this.usersService.getUserPermissions(user._id);
     
     const payload = { 
       email: user.email, 
       sub: user._id,
       permissions,
+      tenantId: user.tenant?.toString() || user.tenantId,
     };
     
     return {
@@ -41,13 +42,30 @@ export class AuthService {
         name: user.name,
         email: user.email,
         permissions,
+        tenantId: user.tenant?.toString() || user.tenantId,
       },
     };
   }
 
-  async register(registerDto: any) {
-    // If roleName is provided, use it, otherwise UsersService will assign default role
-    const user = await this.usersService.create(registerDto);
+  async register(registerDto: RegisterDto) {
+    // Check if user already exists
+    const existingUser = await this.usersService.findByEmail(registerDto.email);
+    if (existingUser) {
+      throw new BadRequestException('User with this email already exists');
+    }
+
+    // Convert RegisterDto to CreateUserDto
+    const createUserDto: CreateUserDto = {
+      name: registerDto.name,
+      email: registerDto.email,
+      password: registerDto.password,
+      metadata: {
+        phone: registerDto.phone,
+      },
+    };
+
+    // Create user with default role
+    const user = await this.usersService.create(createUserDto);
     
     // Get permissions for the created user
     const permissions = await this.usersService.getUserPermissions(user._id.toString());
@@ -57,6 +75,7 @@ export class AuthService {
       ...safeUser,
       permissions,
       _id: user._id.toString(),
+      tenant: user.tenant,
     });
   }
 }
