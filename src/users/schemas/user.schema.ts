@@ -27,7 +27,7 @@ export class User extends Document {
   @Prop({ required: true, trim: true })
   name: string;
 
-  @Prop({ required: true, unique: true, lowercase: true, trim: true })
+  @Prop({ required: true, unique: true, lowercase: true, trim: true }) // Remove index: true here
   email: string;
 
   @Prop({ required: true })
@@ -83,8 +83,8 @@ export class User extends Document {
 
 export const UserSchema = SchemaFactory.createForClass(User);
 
-// Indexes
-UserSchema.index({ email: 1 }, { unique: true });
+// Indexes - REMOVE the duplicate email index since it's already defined by unique: true
+// UserSchema.index({ email: 1 }, { unique: true }); // REMOVE THIS LINE
 UserSchema.index({ permissions: 1 });
 UserSchema.index({ deletedAt: 1 });
 
