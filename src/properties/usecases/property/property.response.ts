@@ -1,5 +1,7 @@
+
 import { Property, PropertyStatus, PropertyType } from '../../domain/property/Property';
 import { PropertyEntity } from '../../persistence/property/property.entity';
+import { Types } from 'mongoose';
 
 export class PropertyResponse {
   id: string;
@@ -30,8 +32,10 @@ export class PropertyResponse {
   publishedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
+  isFavorited?: boolean;
+  favoritedByCurrentUser?: boolean;
 
-  static fromEntity(entity: PropertyEntity): PropertyResponse {
+  static fromEntity(entity: PropertyEntity, userId?: string): PropertyResponse {
     const response = new PropertyResponse();
     response.id = entity._id.toString();
     response.title = entity.title;
@@ -76,10 +80,18 @@ export class PropertyResponse {
     response.publishedAt = entity.publishedAt;
     response.createdAt = entity.createdAt;
     response.updatedAt = entity.updatedAt;
+    
+    // Add favorite status if userId is provided
+    if (userId && entity.favoritedBy) {
+      response.isFavorited = entity.favoritedBy.some(id => 
+        id.toString() === userId || (id as Types.ObjectId).toString() === userId
+      );
+    }
+    
     return response;
   }
 
-  static fromDomain(property: Property): PropertyResponse {
+  static fromDomain(property: Property, userId?: string): PropertyResponse {
     const response = new PropertyResponse();
     response.id = property.id;
     response.title = property.title;
@@ -100,6 +112,14 @@ export class PropertyResponse {
     response.publishedAt = property.publishedAt;
     response.createdAt = property.createdAt;
     response.updatedAt = property.updatedAt;
+    
+    // Add favorite status if userId is provided
+    if (userId && (property as any).favoritedBy) {
+      response.isFavorited = (property as any).favoritedBy.some((id: any) => 
+        id.toString() === userId
+      );
+    }
+    
     return response;
   }
 }

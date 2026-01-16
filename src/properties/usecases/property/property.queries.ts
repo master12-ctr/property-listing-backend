@@ -1,14 +1,17 @@
-import { Injectable } from '@nestjs/common';
+
+import { Injectable, BadRequestException, Inject } from '@nestjs/common';
 import { Property, PropertyStatus } from '../../domain/property/Property';
 import { QueryPropertyDto } from '../../dto/query-property.dto';
 import { PropertyRepository } from '../../persistence/property/property.repository';
 import { Permission } from '../../../shared/constants/permissions';
 import { PropertyResponse } from './property.response';
+import { MetricsService } from '../../../metrics/metrics.service';
 
 @Injectable()
 export class PropertyQueries {
   constructor(
     private readonly propertyRepository: PropertyRepository,
+    @Inject(MetricsService) private readonly metricsService: MetricsService,
   ) {}
 
   async findAll(
@@ -21,7 +24,7 @@ export class PropertyQueries {
     page: number;
     limit: number;
   }> {
-    // If user doesn't have permission to read all properties, only show published
+    // If user doesn't have permission to read all properties, only show published and not disabled
     if (!userPermissions.includes(Permission.PROPERTY_READ_ALL)) {
       query.status = PropertyStatus.PUBLISHED;
     }
@@ -29,7 +32,7 @@ export class PropertyQueries {
     const result = await this.propertyRepository.findAllPaginated(query);
     
     return {
-      data: result.data.map(property => PropertyResponse.fromDomain(property)),
+      data: result.data.map(property => PropertyResponse.fromDomain(property, userId)),
       total: result.total,
       page: result.page,
       limit: result.limit,
@@ -44,7 +47,7 @@ export class PropertyQueries {
     const property = await this.propertyRepository.findById(propertyId);
     
     if (!property) {
-      throw new Error('Property not found');
+      throw new BadRequestException('Property not found');
     }
 
     // Permission checks
@@ -53,16 +56,21 @@ export class PropertyQueries {
     
     // Always allow access to published properties
     const isPublished = property.status === PropertyStatus.PUBLISHED;
+    const isDisabled = property.status === PropertyStatus.DISABLED;
     
     // Allow access if:
-    // 1. Property is published, OR
+    // 1. Property is published and not disabled, OR
     // 2. User can read all properties, OR
     // 3. User can read own properties and owns this property
+    if (isDisabled && !canReadAll) {
+      throw new BadRequestException('Property is disabled');
+    }
+    
     if (!isPublished && !canReadAll && (!canReadOwn || !property.isOwnedBy(userId))) {
-      throw new Error('Insufficient permissions to view this property');
+      throw new BadRequestException('Insufficient permissions to view this property');
     }
 
-    return PropertyResponse.fromDomain(property);
+    return PropertyResponse.fromDomain(property, userId);
   }
 
   async findByOwner(
@@ -76,16 +84,16 @@ export class PropertyQueries {
     
     // Users can only view their own properties unless they have read-all permission
     if (!canReadAll && ownerId !== userId) {
-      throw new Error('Insufficient permissions to view these properties');
+      throw new BadRequestException('Insufficient permissions to view these properties');
     }
 
     const properties = await this.propertyRepository.findByOwner(ownerId, status);
-    return properties.map(property => PropertyResponse.fromDomain(property));
+    return properties.map(property => PropertyResponse.fromDomain(property, userId));
   }
 
   async findFavorites(userId: string): Promise<PropertyResponse[]> {
     const properties = await this.propertyRepository.findFavorites(userId);
-    return properties.map(property => PropertyResponse.fromDomain(property));
+    return properties.map(property => PropertyResponse.fromDomain(property, userId));
   }
 
   async isFavorited(propertyId: string, userId: string): Promise<boolean> {
@@ -93,18 +101,15 @@ export class PropertyQueries {
   }
 
   async getMetrics(userPermissions: string[]): Promise<any> {
-    // Only users with system metrics permission can view metrics
+  
     if (!userPermissions.includes(Permission.SYSTEM_METRICS_READ)) {
-      throw new Error('Insufficient permissions to view system metrics');
+      throw new BadRequestException('Insufficient permissions to view system metrics');
     }
 
-    // Implement metrics logic here
-    // This would typically aggregate data from multiple sources
-    return {
-      totalProperties: 0,
-      publishedProperties: 0,
-      totalUsers: 0,
-      recentProperties: [],
-    };
+    return this.metricsService.getSystemMetrics();
+  }
+
+    async getPropertyMetrics(timeRange: 'day' | 'week' | 'month' = 'week'): Promise<any> {
+    return this.metricsService.getPropertyMetrics(timeRange);
   }
 }

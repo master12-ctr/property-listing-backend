@@ -1,0 +1,235 @@
+
+import { Injectable, BadRequestException } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
+import { PropertyEntity, PropertyDocument } from '../properties/persistence/property/property.entity';
+import { User, UserDocument } from '../users/schemas/user.schema';
+import { Contact, ContactDocument } from '../contact/schemas/contact.schema';
+import { PropertyStatus } from '../properties/domain/property/Property';
+
+@Injectable()
+export class MetricsService {
+  constructor(
+    @InjectModel(PropertyEntity.name) private propertyModel: Model<PropertyDocument>,
+    @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectModel(Contact.name) private contactModel: Model<ContactDocument>,
+  ) {}
+
+  async getSystemMetrics() {
+    try {
+      const [
+        totalProperties,
+        publishedProperties,
+        draftProperties,
+        archivedProperties,
+        disabledProperties,
+        totalUsers,
+        regularUsers,
+        propertyOwners,
+        admins,
+        totalContacts,
+        unreadContacts,
+        recentProperties,
+        topViewedProperties,
+        recentContacts,
+      ] = await Promise.all([
+        // Property counts
+        this.propertyModel.countDocuments({ deletedAt: null }),
+        this.propertyModel.countDocuments({ 
+          status: PropertyStatus.PUBLISHED, 
+          deletedAt: null 
+        }),
+        this.propertyModel.countDocuments({ 
+          status: PropertyStatus.DRAFT, 
+          deletedAt: null 
+        }),
+        this.propertyModel.countDocuments({ 
+          status: PropertyStatus.ARCHIVED, 
+          deletedAt: null 
+        }),
+        this.propertyModel.countDocuments({ 
+          status: PropertyStatus.DISABLED, 
+          deletedAt: null 
+        }),
+        
+        // User counts
+        this.userModel.countDocuments({ deletedAt: null }),
+        this.userModel.countDocuments({ 
+          'roles': { $in: [await this.getRoleIdByName('regular_user')] },
+          deletedAt: null 
+        }),
+        this.userModel.countDocuments({ 
+          'roles': { $in: [await this.getRoleIdByName('property_owner')] },
+          deletedAt: null 
+        }),
+        this.userModel.countDocuments({ 
+          'roles': { $in: [await this.getRoleIdByName('admin')] },
+          deletedAt: null 
+        }),
+        
+        // Contact counts
+        this.contactModel.countDocuments({ deletedAt: null }),
+        this.contactModel.countDocuments({ 
+          isRead: false,
+          deletedAt: null 
+        }),
+        
+        // Recent data
+        this.propertyModel
+          .find({ deletedAt: null })
+          .sort({ createdAt: -1 })
+          .limit(5)
+          .populate('owner', 'name email')
+          .exec(),
+        
+        this.propertyModel
+          .find({ deletedAt: null })
+          .sort({ views: -1 })
+          .limit(5)
+          .populate('owner', 'name email')
+          .exec(),
+        
+        this.contactModel
+          .find({ deletedAt: null })
+          .sort({ createdAt: -1 })
+          .limit(10)
+          .populate('property', 'title')
+          .populate('fromUser', 'name email')
+          .populate('toUser', 'name email')
+          .exec(),
+      ]);
+
+      return {
+        summary: {
+          properties: {
+            total: totalProperties,
+            published: publishedProperties,
+            draft: draftProperties,
+            archived: archivedProperties,
+            disabled: disabledProperties,
+          },
+          users: {
+            total: totalUsers,
+            regular: regularUsers,
+            owners: propertyOwners,
+            admins: admins,
+          },
+          contacts: {
+            total: totalContacts,
+            unread: unreadContacts,
+          },
+        },
+        recentActivity: {
+          recentProperties: recentProperties.map(prop => ({
+            id: prop._id,
+            title: prop.title,
+            status: prop.status,
+            createdAt: prop.createdAt,
+            owner: prop.owner,
+          })),
+          topViewedProperties: topViewedProperties.map(prop => ({
+            id: prop._id,
+            title: prop.title,
+            views: prop.views,
+            favoritesCount: prop.favoritesCount,
+          })),
+          recentContacts: recentContacts.map(contact => ({
+            id: contact._id,
+            property: contact.property,
+            fromUser: contact.fromUser,
+            toUser: contact.toUser,
+            message: contact.message.substring(0, 100) + '...',
+            createdAt: contact.createdAt,
+          })),
+        },
+        updatedAt: new Date(),
+      };
+    } catch (error) {
+      console.error('Error getting system metrics:', error);
+      throw new BadRequestException('Failed to get system metrics');
+    }
+  }
+
+  async getPropertyMetrics(timeRange: 'day' | 'week' | 'month' = 'week') {
+    try {
+      const now = new Date();
+      let startDate = new Date();
+      
+      switch (timeRange) {
+        case 'day':
+          startDate.setDate(now.getDate() - 1);
+          break;
+        case 'week':
+          startDate.setDate(now.getDate() - 7);
+          break;
+        case 'month':
+          startDate.setMonth(now.getMonth() - 1);
+          break;
+      }
+
+      const [
+        propertiesCreated,
+        propertiesPublished,
+        propertiesViewedAgg,
+        totalFavoritesAgg,
+      ] = await Promise.all([
+        this.propertyModel.countDocuments({
+          createdAt: { $gte: startDate },
+          deletedAt: null,
+        }),
+        this.propertyModel.countDocuments({
+          publishedAt: { $gte: startDate },
+          deletedAt: null,
+        }),
+        this.propertyModel.aggregate([
+          {
+            $match: {
+              deletedAt: null,
+              status: PropertyStatus.PUBLISHED,
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              totalViews: { $sum: '$views' }
+            }
+          }
+        ]),
+        this.propertyModel.aggregate([
+          {
+            $match: {
+              deletedAt: null,
+              status: PropertyStatus.PUBLISHED,
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              totalFavorites: { $sum: '$favoritesCount' }
+            }
+          }
+        ]),
+      ]);
+
+      return {
+        timeRange,
+        period: { start: startDate, end: now },
+        metrics: {
+          propertiesCreated,
+          propertiesPublished,
+          totalViews: propertiesViewedAgg[0]?.totalViews || 0,
+          totalFavorites: totalFavoritesAgg[0]?.totalFavorites || 0,
+        },
+      };
+    } catch (error) {
+      console.error('Error getting property metrics:', error);
+      throw new BadRequestException('Failed to get property metrics');
+    }
+  }
+
+  private async getRoleIdByName(roleName: string): Promise<Types.ObjectId> {
+    // This is a simplified version - in production, you would have a proper Role model
+    // For now, we'll return a dummy ObjectId
+    return new Types.ObjectId();
+  }
+}

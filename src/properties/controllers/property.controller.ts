@@ -142,4 +142,40 @@ export class PropertyController {
   async getMetrics(@GetUser() user: any) {
     return this.queries.getMetrics(user.permissions);
   }
+
+
+
+  
+  @Post(':id/disable')
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Permissions(Permission.PROPERTY_UPDATE_ALL)
+async disable(
+  @Param('id') id: string,
+  @GetUser() user: any,
+) {
+  return this.commands.disable(id, user.userId, user.permissions);
+}
+
+@Post(':id/enable')
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Permissions(Permission.PROPERTY_UPDATE_ALL)
+async enable(
+  @Param('id') id: string,
+  @GetUser() user: any,
+) {
+  return this.commands.enable(id, user.userId, user.permissions);
+}
+
+@Get('metrics/property')
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Permissions(Permission.SYSTEM_METRICS_READ)
+async getPropertyMetrics(
+  @Query('timeRange') timeRange: 'day' | 'week' | 'month' = 'week',
+  @GetUser() user: any,
+) {
+  return this.queries.getPropertyMetrics(timeRange);
+}
+
+
+
 }

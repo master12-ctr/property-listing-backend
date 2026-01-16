@@ -5,6 +5,7 @@ import { UpdatePropertyDto } from '../../dto/update-property.dto';
 import { PropertyRepository } from '../../persistence/property/property.repository';
 import { PropertyResponse } from './property.response';
 import { LoggerService } from '../../../shared/infrastructure/logger/logger.service';
+import { Permission } from 'src/shared/constants/permissions';
 
 @Injectable()
 export class PropertyCommands {
@@ -171,4 +172,51 @@ export class PropertyCommands {
     const property = await this.propertyRepository.removeFromFavorites(propertyId, userId);
     return PropertyResponse.fromDomain(property);
   }
+
+
+
+
+  async disable(
+  propertyId: string, 
+  userId: string,
+  userPermissions: string[],
+): Promise<PropertyResponse> {
+  if (!userPermissions.includes(Permission.PROPERTY_UPDATE_ALL)) {
+    throw new BadRequestException('Only admins can disable properties');
+  }
+
+  const property = await this.propertyRepository.findById(propertyId);
+  if (!property) {
+    throw new BadRequestException('Property not found');
+  }
+
+  property.disable(userId);
+  const updated = await this.propertyRepository.update(propertyId, property);
+  
+  this.logger.log('PropertyCommands', `Property ${propertyId} disabled by admin ${userId}`);
+  return PropertyResponse.fromDomain(updated);
+}
+
+async enable(
+  propertyId: string, 
+  userId: string,
+  userPermissions: string[],
+): Promise<PropertyResponse> {
+  if (!userPermissions.includes(Permission.PROPERTY_UPDATE_ALL)) {
+    throw new BadRequestException('Only admins can enable properties');
+  }
+
+  const property = await this.propertyRepository.findById(propertyId);
+  if (!property) {
+    throw new BadRequestException('Property not found');
+  }
+
+  property.enable();
+  const updated = await this.propertyRepository.update(propertyId, property);
+  
+  this.logger.log('PropertyCommands', `Property ${propertyId} enabled by admin ${userId}`);
+  return PropertyResponse.fromDomain(updated);
+}
+
+
 }

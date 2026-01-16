@@ -1,3 +1,4 @@
+
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
@@ -10,6 +11,9 @@ import { UsersModule } from './users/users.module';
 import { RolesModule } from './roles/roles.module';
 import { PropertiesModule } from './properties/properties.module';
 import { ImagesModule } from './images/images.module';
+import { FavoritesModule } from './favorites/favorites.module';
+import { ContactModule } from './contact/contact.module';
+import { MetricsModule } from './metrics/metrics.module';
 
 @Module({
   imports: [
@@ -38,6 +42,9 @@ import { ImagesModule } from './images/images.module';
     RolesModule,
     PropertiesModule,
     ImagesModule,
+    FavoritesModule,
+    ContactModule,
+    MetricsModule,
   ],
 })
 export class AppModule {}
