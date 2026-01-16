@@ -1,15 +1,15 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { v2 as cloudinary } from 'cloudinary';
+import { v2 as cloudinary, UploadApiResponse, UploadApiErrorResponse } from 'cloudinary';
 import * as stream from 'stream';
 
 @Injectable()
 export class ImagesService {
   constructor(private configService: ConfigService) {
     cloudinary.config({
-      cloud_name: configService.get('CLOUDINARY_CLOUD_NAME'),
-      api_key: configService.get('CLOUDINARY_API_KEY'),
-      api_secret: configService.get('CLOUDINARY_API_SECRET'),
+      cloud_name: configService.get('CLOUDINARY_CLOUD_NAME') || '',
+      api_key: configService.get('CLOUDINARY_API_KEY') || '',
+      api_secret: configService.get('CLOUDINARY_API_SECRET') || '',
     });
   }
 
@@ -40,11 +40,13 @@ export class ImagesService {
             { quality: 'auto:good' },
           ],
         },
-        (error, result) => {
+        (error: UploadApiErrorResponse | undefined, result: UploadApiResponse | undefined) => {
           if (error) {
-            reject(new BadRequestException('Failed to upload image'));
-          } else {
+            reject(new BadRequestException('Failed to upload image: ' + error.message));
+          } else if (result && result.secure_url) {
             resolve(result.secure_url);
+          } else {
+            reject(new BadRequestException('No result from Cloudinary'));
           }
         },
       );
@@ -73,6 +75,7 @@ export class ImagesService {
   private extractPublicId(url: string): string {
     const parts = url.split('/');
     const filename = parts[parts.length - 1];
-    return `property-listings/${filename.split('.')[0]}`;
+    const filenameWithoutExtension = filename.split('.')[0];
+    return `property-listings/${filenameWithoutExtension}`;
   }
 }

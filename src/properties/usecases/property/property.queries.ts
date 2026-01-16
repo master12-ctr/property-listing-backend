@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { Property, PropertyStatus } from '../../domain/property/Property';
 import { QueryPropertyDto } from '../../dto/query-property.dto';
+import { PropertyRepository } from '../../persistence/property/property.repository';
 import { Permission } from '../../../shared/constants/permissions';
-import { PropertyRepository } from 'src/auth/properties/persistence/property/property.repository';
+import { PropertyResponse } from './property.response';
 
 @Injectable()
 export class PropertyQueries {
@@ -15,24 +16,31 @@ export class PropertyQueries {
     userId: string,
     userPermissions: string[],
   ): Promise<{
-    data: Property[];
+    data: PropertyResponse[];
     total: number;
     page: number;
     limit: number;
   }> {
     // If user doesn't have permission to read all properties, only show published
     if (!userPermissions.includes(Permission.PROPERTY_READ_ALL)) {
-      query.status = PropertyStatus.PUBLISHED; // Use enum value
+      query.status = PropertyStatus.PUBLISHED;
     }
 
-    return await this.propertyRepository.findAllPaginated(query);
+    const result = await this.propertyRepository.findAllPaginated(query);
+    
+    return {
+      data: result.data.map(property => PropertyResponse.fromDomain(property)),
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+    };
   }
 
   async findById(
     propertyId: string,
     userId: string,
     userPermissions: string[],
-  ): Promise<Property> {
+  ): Promise<PropertyResponse> {
     const property = await this.propertyRepository.findById(propertyId);
     
     if (!property) {
@@ -54,7 +62,7 @@ export class PropertyQueries {
       throw new Error('Insufficient permissions to view this property');
     }
 
-    return property;
+    return PropertyResponse.fromDomain(property);
   }
 
   async findByOwner(
@@ -62,7 +70,7 @@ export class PropertyQueries {
     userId: string,
     userPermissions: string[],
     status?: PropertyStatus,
-  ): Promise<Property[]> {
+  ): Promise<PropertyResponse[]> {
     // Permission checks
     const canReadAll = userPermissions.includes(Permission.PROPERTY_READ_ALL);
     
@@ -71,11 +79,13 @@ export class PropertyQueries {
       throw new Error('Insufficient permissions to view these properties');
     }
 
-    return await this.propertyRepository.findByOwner(ownerId, status);
+    const properties = await this.propertyRepository.findByOwner(ownerId, status);
+    return properties.map(property => PropertyResponse.fromDomain(property));
   }
 
-  async findFavorites(userId: string): Promise<Property[]> {
-    return await this.propertyRepository.findFavorites(userId);
+  async findFavorites(userId: string): Promise<PropertyResponse[]> {
+    const properties = await this.propertyRepository.findFavorites(userId);
+    return properties.map(property => PropertyResponse.fromDomain(property));
   }
 
   async isFavorited(propertyId: string, userId: string): Promise<boolean> {

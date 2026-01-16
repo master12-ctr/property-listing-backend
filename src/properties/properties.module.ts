@@ -5,7 +5,7 @@ import { PropertyCommands } from './usecases/property/property.commands';
 import { PropertyQueries } from './usecases/property/property.queries';
 import { PropertyEntity, PropertySchema } from './persistence/property/property.entity';
 import { ImagesModule } from '../images/images.module';
-import { PropertyRepository } from 'src/auth/properties/persistence/property/property.repository';
+import { PropertyRepository } from './persistence/property/property.repository';
 
 @Module({
   imports: [

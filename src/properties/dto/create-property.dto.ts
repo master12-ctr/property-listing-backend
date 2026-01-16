@@ -8,10 +8,24 @@ import {
   MaxLength, 
   ArrayMaxSize,
   ValidateNested,
-  IsObject 
+  IsObject,
+  ArrayMinSize,
+  ArrayNotEmpty 
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PropertyStatus, PropertyType } from '../domain/property/Property';
+
+class CoordinatesDto {
+  @IsString()
+  @IsOptional()
+  type?: string = 'Point';
+
+  @IsArray()
+  @ArrayMinSize(2)
+  @ArrayMaxSize(2)
+  @IsNumber({}, { each: true })
+  coordinates: [number, number];
+}
 
 class LocationDto {
   @IsString()
@@ -28,8 +42,9 @@ class LocationDto {
   country: string;
 
   @IsOptional()
-  @IsArray()
-  coordinates?: [number, number];
+  @ValidateNested()
+  @Type(() => CoordinatesDto)
+  coordinates?: CoordinatesDto;
 }
 
 export class CreatePropertyDto {
@@ -52,6 +67,7 @@ export class CreatePropertyDto {
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(10)
+  @ArrayNotEmpty()
   @IsString({ each: true })
   images?: string[];
 
@@ -60,7 +76,7 @@ export class CreatePropertyDto {
 
   @IsOptional()
   @IsEnum(PropertyStatus)
-  status?: PropertyStatus;
+  status?: PropertyStatus = PropertyStatus.DRAFT;
 
   @IsOptional()
   @IsObject()

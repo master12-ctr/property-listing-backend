@@ -21,7 +21,10 @@ export class Property {
     city: string;
     state?: string;
     country: string;
-    coordinates?: [number, number];
+    coordinates?: {
+      type: string;
+      coordinates: [number, number];
+    };
   };
   price: number;
   images: string[];

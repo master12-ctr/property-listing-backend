@@ -11,11 +11,10 @@ export class AuthService {
   ) {}
 
   async validateUser(email: string, password: string): Promise<any> {
-    const user = await this.usersService.findByEmail(email);
+    const user = await this.usersService.validateUser(email, password);
     
-    if (user && await bcrypt.compare(password, user.password)) {
-      const { password, ...result } = user.toObject();
-      return result;
+    if (user) {
+      return user.toSafeObject();
     }
     return null;
   }
@@ -39,13 +38,11 @@ export class AuthService {
   }
 
   async register(createUserDto: any) {
-    const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
     const user = await this.usersService.create({
       ...createUserDto,
-      password: hashedPassword,
       permissions: createUserDto.permissions || [],
     });
     
-    return this.login(user);
+    return this.login(user.toSafeObject());
   }
 }
