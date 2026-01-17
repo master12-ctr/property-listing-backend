@@ -28,5 +28,6 @@ export class CreateUserDto {
     phone?: string;
     bio?: string;
     preferences?: Record<string, any>;
+    company: any
   };
 }

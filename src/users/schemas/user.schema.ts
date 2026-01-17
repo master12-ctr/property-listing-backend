@@ -68,7 +68,8 @@ export class User extends Document {
   @Prop()
   updatedAt: Date;
 
-  toSafeObject() {
+  // Explicitly define toSafeObject method
+  toSafeObject?(): any {
     const obj = this.toObject();
     const { password, __v, ...safeObj } = obj;
     return safeObj;
@@ -82,6 +83,13 @@ UserSchema.index({ tenant: 1, email: 1 }, { unique: true });
 UserSchema.index({ roles: 1 });
 UserSchema.index({ deletedAt: 1 });
 UserSchema.index({ isActive: 1 });
+
+// Add toSafeObject method to schema
+UserSchema.methods.toSafeObject = function() {
+  const obj = this.toObject();
+  const { password, __v, ...safeObj } = obj;
+  return safeObj;
+};
 
 UserSchema.methods.toJSON = function() {
   const obj = this.toObject();

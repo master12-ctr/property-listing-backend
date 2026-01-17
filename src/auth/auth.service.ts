@@ -1,3 +1,4 @@
+
 import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
@@ -16,7 +17,8 @@ export class AuthService {
     
     if (user) {
       const permissions = await this.usersService.getUserPermissions(user._id.toString());
-      const safeUser = user.toSafeObject();
+      // Use toJSON instead of toSafeObject
+      const safeUser = user.toJSON ? user.toJSON() : this.toSafeUser(user);
       return {
         ...safeUser,
         permissions,
@@ -61,6 +63,7 @@ export class AuthService {
       password: registerDto.password,
       metadata: {
         phone: registerDto.phone,
+        company: registerDto.company,
       },
     };
 
@@ -69,7 +72,9 @@ export class AuthService {
     
     // Get permissions for the created user
     const permissions = await this.usersService.getUserPermissions(user._id.toString());
-    const safeUser = user.toSafeObject();
+    
+    // Use toJSON or custom method
+    const safeUser = user.toJSON ? user.toJSON() : this.toSafeUser(user);
     
     return this.login({
       ...safeUser,
@@ -77,5 +82,15 @@ export class AuthService {
       _id: user._id.toString(),
       tenant: user.tenant,
     });
+  }
+
+  private toSafeUser(user: any): any {
+    const safeUser = { ...user };
+    delete safeUser.password;
+    delete safeUser.__v;
+    if (safeUser._id && safeUser._id.toString) {
+      safeUser._id = safeUser._id.toString();
+    }
+    return safeUser;
   }
 }

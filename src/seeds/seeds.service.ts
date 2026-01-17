@@ -16,19 +16,23 @@ export class SeedsService implements OnModuleInit {
     @InjectModel(User.name) private userModel: Model<User>,
   ) {}
 
-  async onModuleInit() {
+ async onModuleInit() {
     console.log('🚀 Starting database seeding...');
     
-    // 1. Ensure default roles exist
-    await this.seedDefaultRoles();
-    
-    // 2. Seed default tenant
-    const defaultTenant = await this.seedDefaultTenant();
-    
-    // 3. Seed admin user from environment variables
-    await this.seedAdminUser(defaultTenant);
-    
-    console.log('✅ Database seeding completed');
+    try {
+      // 1. Ensure default roles exist
+      await this.seedDefaultRoles();
+      
+      // 2. Seed default tenant
+      const defaultTenant = await this.seedDefaultTenant();
+      
+      // 3. Seed admin user from environment variables
+      await this.seedAdminUser(defaultTenant);
+      
+      console.log('✅ Database seeding completed');
+    } catch (error) {
+      console.error('❌ Database seeding failed:', error);
+    }
   }
 
   private async seedDefaultRoles() {
@@ -113,26 +117,13 @@ export class SeedsService implements OnModuleInit {
     return tenant;
   }
 
+
   private async seedAdminUser(defaultTenant: any) {
-    const adminEmail = this.configService.get('ADMIN_EMAIL');
-    const adminPassword = this.configService.get('ADMIN_PASSWORD');
+    const adminEmail = this.configService.get('ADMIN_EMAIL', 'admin@example.com');
+    const adminPassword = this.configService.get('ADMIN_PASSWORD', 'admin123');
     const adminName = this.configService.get('ADMIN_NAME', 'Super Admin');
 
-    if (!adminEmail || !adminPassword) {
-      console.warn('⚠️  Admin credentials not set in environment variables');
-      console.warn('   Set ADMIN_EMAIL and ADMIN_PASSWORD in .env file');
-      return;
-    }
-
     try {
-      // Check if admin already exists
-      const existingAdmin = await this.userModel.findOne({ email: adminEmail });
-      
-      if (existingAdmin) {
-        console.log(`✅ Admin user already exists: ${adminEmail}`);
-        return;
-      }
-
       // Get admin role
       const adminRole = await this.roleModel.findOne({ name: 'admin' });
       
@@ -144,24 +135,45 @@ export class SeedsService implements OnModuleInit {
       // Hash password
       const hashedPassword = await bcrypt.hash(adminPassword, 10);
 
-      // Create admin user
-      const adminUserData = {
-        name: adminName,
-        email: adminEmail,
-        password: hashedPassword,
-        roles: [adminRole._id],
-        tenant: defaultTenant._id,
-        isActive: true,
-      };
+      // Check if admin already exists - update or create
+      const existingAdmin = await this.userModel.findOne({ email: adminEmail });
+      
+      if (existingAdmin) {
+        // Update existing admin
+        existingAdmin.password = hashedPassword;
+        existingAdmin.name = adminName;
+        existingAdmin.roles = [adminRole._id];
+        existingAdmin.tenant = defaultTenant._id;
+        existingAdmin.isActive = true;
+        await existingAdmin.save();
+        console.log(`✅ Admin user updated: ${adminEmail}`);
+      } else {
+        // Create admin user
+        const adminUserData = {
+          name: adminName,
+          email: adminEmail,
+          password: hashedPassword,
+          roles: [adminRole._id],
+          tenant: defaultTenant._id,
+          isActive: true,
+          metadata: {
+            phone: '+1234567890',
+            isSuperAdmin: true,
+          },
+        };
 
-      await this.userModel.create(adminUserData);
-
-      console.log(`✅ Super Admin user created: ${adminEmail}`);
+        await this.userModel.create(adminUserData);
+        console.log(`✅ Super Admin user created:`);
+      }
+      
+      console.log(`   Email: ${adminEmail}`);
       console.log(`   Name: ${adminName}`);
+      console.log(`   Password: ${adminPassword}`);
       console.log(`   Tenant: ${defaultTenant.name}`);
       
     } catch (error) {
-      console.error('❌ Failed to create admin user:', error.message);
+      console.error('❌ Failed to create/update admin user:', error.message);
     }
   }
+  
 }

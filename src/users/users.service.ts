@@ -232,6 +232,11 @@ export class UsersService {
 
   // Add toSafeObject method to UserDocument
   toSafeObject(user: UserDocument): any {
+    if (user.toSafeObject && typeof user.toSafeObject === 'function') {
+      return user.toSafeObject();
+    }
+    
+    // Fallback if method doesn't exist
     const obj = user.toObject();
     const { password, __v, ...safeObj } = obj;
     return safeObj;
