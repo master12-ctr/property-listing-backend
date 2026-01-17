@@ -1,4 +1,4 @@
-import { IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PropertyStatus, PropertyType } from '../domain/property/Property';
 
@@ -46,4 +46,13 @@ export class QueryPropertyDto {
   @IsOptional()
   @IsString()
   sortOrder?: 'asc' | 'desc' = 'desc';
+
+  @IsOptional()
+  @IsString()
+  near?: string; // Format: "lng,lat"
+
+  @IsOptional()
+  @Type(() => Number)
+  @Min(100)
+  maxDistance?: number = 5000; // Default 5km in meters
 }

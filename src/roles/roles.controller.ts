@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
-import { Permissions } from '../auth/decorators/permissions.decorator';
+import { RequirePermissions } from '../auth/decorators/permissions.decorator'; // Changed from Permissions to RequirePermissions
 import { Permission } from '../shared/constants/permissions';
 import { RolesService } from './roles.service';
 import { CreateRoleDto } from './dto/create-role.dto';
@@ -23,37 +23,43 @@ export class RolesController {
   constructor(private readonly rolesService: RolesService) {}
 
   @Get()
-  @Permissions(Permission.USER_READ_ALL)
+  @RequirePermissions(Permission.USER_READ_ALL) 
+  
   async findAll() {
     return this.rolesService.findAll();
   }
 
   @Get(':id')
-  @Permissions(Permission.USER_READ_ALL)
+  @RequirePermissions(Permission.USER_READ_ALL) 
+  
   async findOne(@Param('id') id: string) {
     return this.rolesService.findById(id);
   }
 
   @Post()
-  @Permissions(Permission.SYSTEM_CONFIG_UPDATE)
+  @RequirePermissions(Permission.SYSTEM_CONFIG_UPDATE) 
+  
   async create(@Body() createRoleDto: CreateRoleDto) {
     return this.rolesService.create(createRoleDto);
   }
 
   @Put(':id')
-  @Permissions(Permission.SYSTEM_CONFIG_UPDATE)
+  @RequirePermissions(Permission.SYSTEM_CONFIG_UPDATE) 
+  
   async update(@Param('id') id: string, @Body() updateRoleDto: UpdateRoleDto) {
     return this.rolesService.update(id, updateRoleDto);
   }
 
   @Delete(':id')
-  @Permissions(Permission.SYSTEM_CONFIG_UPDATE)
+  @RequirePermissions(Permission.SYSTEM_CONFIG_UPDATE) 
+  
   async remove(@Param('id') id: string) {
     return this.rolesService.remove(id);
   }
 
   @Patch(':id/permissions/add')
-  @Permissions(Permission.SYSTEM_CONFIG_UPDATE)
+  @RequirePermissions(Permission.SYSTEM_CONFIG_UPDATE) 
+  
   async addPermission(
     @Param('id') id: string,
     @Body('permission') permission: Permission,
@@ -62,7 +68,8 @@ export class RolesController {
   }
 
   @Patch(':id/permissions/remove')
-  @Permissions(Permission.SYSTEM_CONFIG_UPDATE)
+  @RequirePermissions(Permission.SYSTEM_CONFIG_UPDATE) 
+  
   async removePermission(
     @Param('id') id: string,
     @Body('permission') permission: Permission,

@@ -1,8 +1,7 @@
-
 import { Controller, Post, Body, Get, Param, Delete, Patch, UseGuards, Query } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
-import { Permissions } from '../auth/decorators/permissions.decorator';
+import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { GetUser } from '../auth/decorators/get-user.decorator';
 import { Permission } from '../shared/constants/permissions';
 import { ContactService } from './contact.service';
@@ -14,7 +13,7 @@ export class ContactController {
 
   @Post()
   @UseGuards(JwtAuthGuard, PermissionsGuard)
-  @Permissions(Permission.PROPERTY_READ_OWN) // Regular users can contact property owners
+  @RequirePermissions(Permission.PROPERTY_READ_OWN)
   async create(
     @Body() createContactDto: CreateContactDto,
     @GetUser() user: any,

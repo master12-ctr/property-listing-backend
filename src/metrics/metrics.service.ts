@@ -9,6 +9,7 @@ import { Role, RoleDocument } from '../roles/schemas/role.schema';
 import { Tenant, TenantDocument } from '../tenants/schemas/tenant.schema';
 import { PropertyStatus } from '../properties/domain/property/Property';
 
+
 @Injectable()
 export class MetricsService {
   constructor(
@@ -253,4 +254,122 @@ export class MetricsService {
       throw new BadRequestException('Failed to get property metrics');
     }
   }
+
+  async getTenantMetrics(tenantId: string): Promise<any> {
+  try {
+    const tenantObjectId = new Types.ObjectId(tenantId);
+    
+    const [
+      totalProperties,
+      publishedProperties,
+      draftProperties,
+      archivedProperties,
+      disabledProperties,
+      totalUsers,
+      totalContacts,
+      recentProperties,
+      topViewedProperties,
+    ] = await Promise.all([
+      // Property counts
+      this.propertyModel.countDocuments({ 
+        tenant: tenantObjectId,
+        deletedAt: null 
+      }),
+      this.propertyModel.countDocuments({ 
+        tenant: tenantObjectId,
+        status: PropertyStatus.PUBLISHED, 
+        deletedAt: null 
+      }),
+      this.propertyModel.countDocuments({ 
+        tenant: tenantObjectId,
+        status: PropertyStatus.DRAFT, 
+        deletedAt: null 
+      }),
+      this.propertyModel.countDocuments({ 
+        tenant: tenantObjectId,
+        status: PropertyStatus.ARCHIVED, 
+        deletedAt: null 
+      }),
+      this.propertyModel.countDocuments({ 
+        tenant: tenantObjectId,
+        status: PropertyStatus.DISABLED, 
+        deletedAt: null 
+      }),
+      
+      // User count for this tenant
+      this.userModel.countDocuments({ 
+        tenant: tenantObjectId,
+        deletedAt: null 
+      }),
+      
+      // Contact count for this tenant's properties
+      this.contactModel.countDocuments({ deletedAt: null }),
+      
+      // Recent data
+      this.propertyModel
+        .find({ 
+          tenant: tenantObjectId,
+          deletedAt: null 
+        })
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .populate('owner', 'name email')
+        .exec(),
+      
+      this.propertyModel
+        .find({ 
+          tenant: tenantObjectId,
+          deletedAt: null,
+          status: PropertyStatus.PUBLISHED 
+        })
+        .sort({ views: -1 })
+        .limit(5)
+        .populate('owner', 'name email')
+        .exec(),
+    ]);
+
+    return {
+      tenantId,
+      summary: {
+        properties: {
+          total: totalProperties,
+          published: publishedProperties,
+          draft: draftProperties,
+          archived: archivedProperties,
+          disabled: disabledProperties,
+        },
+        users: {
+          total: totalUsers,
+        },
+        contacts: {
+          total: totalContacts,
+        },
+      },
+      recentActivity: {
+        recentProperties: recentProperties.map(prop => ({
+          id: prop._id.toString(),
+          title: prop.title,
+          status: prop.status,
+          views: prop.views,
+          createdAt: prop.createdAt,
+          owner: {
+            id: (prop.owner as any)._id.toString(),
+            name: (prop.owner as any).name,
+          },
+        })),
+        topViewedProperties: topViewedProperties.map(prop => ({
+          id: prop._id.toString(),
+          title: prop.title,
+          views: prop.views,
+          favoritesCount: prop.favoritesCount,
+          status: prop.status,
+        })),
+      },
+      updatedAt: new Date(),
+    };
+  } catch (error) {
+    console.error('Error getting tenant metrics:', error);
+    throw new BadRequestException('Failed to get tenant metrics');
+  }
+}
 }

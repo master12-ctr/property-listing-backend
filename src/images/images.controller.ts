@@ -12,7 +12,7 @@ import {
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
-import { Permissions } from '../auth/decorators/permissions.decorator';
+import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { Permission } from '../shared/constants/permissions';
 import { ImagesService } from './images.service';
 import { GetUser } from '../auth/decorators/get-user.decorator';
@@ -24,8 +24,8 @@ export class ImagesController {
 
   @Post('upload')
   @UseGuards(PermissionsGuard)
-  @Permissions(Permission.PROPERTY_CREATE, Permission.PROPERTY_UPDATE_OWN)
-  @UseInterceptors(FilesInterceptor('images', 10)) // max 10 images
+  @RequirePermissions(Permission.PROPERTY_CREATE, Permission.PROPERTY_UPDATE_OWN)
+  @UseInterceptors(FilesInterceptor('images', 10))
   async uploadImages(
     @UploadedFiles() files: Express.Multer.File[],
     @GetUser() user: any,
@@ -35,7 +35,6 @@ export class ImagesController {
     }
 
     try {
-      // Create user-specific folder
       const folder = `property-listings/tenant-${user.tenantId || 'default'}/user-${user.userId}`;
       
       const urls = await this.imagesService.uploadMultipleImages(files, folder);
@@ -52,7 +51,7 @@ export class ImagesController {
 
   @Delete('delete')
   @UseGuards(PermissionsGuard)
-  @Permissions(Permission.PROPERTY_UPDATE_OWN, Permission.PROPERTY_UPDATE_ALL)
+  @RequirePermissions(Permission.PROPERTY_UPDATE_OWN, Permission.PROPERTY_UPDATE_ALL)
   async deleteImages(@Body() body: { urls: string[] }) {
     if (!body.urls || !Array.isArray(body.urls) || body.urls.length === 0) {
       throw new BadRequestException('No image URLs provided');

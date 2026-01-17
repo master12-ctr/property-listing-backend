@@ -6,27 +6,17 @@ import { PropertyRepository } from '../../persistence/property/property.reposito
 import { PropertyResponse } from './property.response';
 import { LoggerService } from '../../../shared/infrastructure/logger/logger.service';
 import { Permission } from '../../../shared/constants/permissions';
-import { ImagesService } from '../../../images/images.service';
 
 @Injectable()
 export class PropertyCommands {
   constructor(
     private readonly propertyRepository: PropertyRepository,
     private readonly logger: LoggerService,
-    @Inject(forwardRef(() => ImagesService))
-    private readonly imagesService: ImagesService,
   ) {}
 
   async create(command: CreatePropertyDto, userId: string, tenantId: string): Promise<PropertyResponse> {
     this.logger.log('PropertyCommands', `Creating property for user ${userId} in tenant ${tenantId}`);
     
-    // Validate images if provided
-    if (command.images && command.images.length > 0) {
-      for (const imageUrl of command.images) {
-        await this.validateImageUrl(imageUrl);
-      }
-    }
-
     const property = new Property();
     property.title = command.title;
     property.description = command.description;
@@ -72,6 +62,11 @@ export class PropertyCommands {
       throw new BadRequestException('Property not found');
     }
 
+    // Business rule: Published properties cannot be edited (for anyone including admins)
+    if (property.status === PropertyStatus.PUBLISHED) {
+      throw new BadRequestException('Published properties cannot be edited');
+    }
+
     // Permission check
     const canUpdateAll = userPermissions.includes(Permission.PROPERTY_UPDATE_ALL);
     const canUpdateOwn = userPermissions.includes(Permission.PROPERTY_UPDATE_OWN);
@@ -80,16 +75,10 @@ export class PropertyCommands {
       throw new BadRequestException('Insufficient permissions to update property');
     }
 
-    // Business rule: Published properties cannot be edited
-    if (!canUpdateAll && !property.canBeEdited()) {
-      throw new BadRequestException('Published properties cannot be edited');
-    }
-
     // Update allowed fields
     if (command.title !== undefined) property.title = command.title;
     if (command.description !== undefined) property.description = command.description;
     
-    // Handle location update
     if (command.location !== undefined) {
       property.location = {
         address: command.location.address || property.location.address,
@@ -161,7 +150,6 @@ export class PropertyCommands {
       throw new BadRequestException('Property not found');
     }
 
-    // Permission check
     const canDeleteAll = userPermissions.includes(Permission.PROPERTY_DELETE_ALL);
     const canDeleteOwn = userPermissions.includes(Permission.PROPERTY_DELETE_OWN);
     
@@ -172,16 +160,6 @@ export class PropertyCommands {
     await this.propertyRepository.softDelete(propertyId, tenantId);
     
     this.logger.log('PropertyCommands', `Property ${propertyId} soft-deleted by user ${userId}`);
-  }
-
-  async addToFavorites(propertyId: string, userId: string, tenantId: string): Promise<PropertyResponse> {
-    const property = await this.propertyRepository.addToFavorites(propertyId, userId, tenantId);
-    return PropertyResponse.fromDomain(property);
-  }
-
-  async removeFromFavorites(propertyId: string, userId: string, tenantId: string): Promise<PropertyResponse> {
-    const property = await this.propertyRepository.removeFromFavorites(propertyId, userId, tenantId);
-    return PropertyResponse.fromDomain(property);
   }
 
   async disable(
@@ -222,13 +200,42 @@ export class PropertyCommands {
     return PropertyResponse.fromDomain(enabled);
   }
 
-  private async validateImageUrl(url: string): Promise<void> {
-    // Validate that the URL is from our Cloudinary account
-    if (!url.includes('cloudinary.com')) {
-      throw new BadRequestException('Invalid image URL. Must be from Cloudinary');
-    }
+  async validateForPublishing(propertyId: string, tenantId: string): Promise<any> {
+    const property = await this.propertyRepository.findById(propertyId, tenantId);
     
-    // You could add more validation here
-    // For example, check if the image exists in Cloudinary
+    if (!property) {
+      throw new BadRequestException('Property not found');
+    }
+
+    const validation = property.validateForPublishing();
+    
+    return {
+      propertyId,
+      isValid: validation.isValid,
+      errors: validation.errors,
+      canBePublished: property.status === PropertyStatus.DRAFT && validation.isValid,
+      property: {
+        title: property.title,
+        status: property.status,
+        hasImages: property.images?.length > 0,
+        imageCount: property.images?.length || 0,
+      }
+    };
   }
+
+
+  async addToFavorites(propertyId: string, userId: string, tenantId: string): Promise<PropertyResponse> {
+  this.logger.log('PropertyCommands', `Adding property ${propertyId} to favorites for user ${userId}`);
+  
+  const property = await this.propertyRepository.addToFavorites(propertyId, userId, tenantId);
+  return PropertyResponse.fromDomain(property);
+}
+
+async removeFromFavorites(propertyId: string, userId: string, tenantId: string): Promise<PropertyResponse> {
+  this.logger.log('PropertyCommands', `Removing property ${propertyId} from favorites for user ${userId}`);
+  
+  const property = await this.propertyRepository.removeFromFavorites(propertyId, userId, tenantId);
+  return PropertyResponse.fromDomain(property);
+}
+
 }

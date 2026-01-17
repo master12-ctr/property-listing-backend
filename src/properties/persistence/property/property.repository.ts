@@ -13,6 +13,16 @@ export class PropertyRepository implements IPropertyRepository {
     private readonly propertyModel: Model<PropertyDocument>,
   ) {}
 
+  private buildTenantQuery(tenantId?: string, baseQuery: any = {}): any {
+    const query = { ...baseQuery, deletedAt: null };
+    
+    if (tenantId) {
+      query.tenant = new Types.ObjectId(tenantId);
+    }
+    
+    return query;
+  }
+
   async create(property: Property, tenantId: string): Promise<Property> {
     const entity = this.toEntity(property);
     entity.tenant = new Types.ObjectId(tenantId);
@@ -21,12 +31,8 @@ export class PropertyRepository implements IPropertyRepository {
   }
 
   async update(id: string, property: Property, tenantId?: string): Promise<Property> {
-    const query: any = { _id: new Types.ObjectId(id), deletedAt: null };
+    const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(id) });
     
-    if (tenantId) {
-      query.tenant = new Types.ObjectId(tenantId);
-    }
-
     const entity = this.toEntity(property);
     const updated = await this.propertyModel
       .findOneAndUpdate(query, entity, { new: true })
@@ -42,11 +48,7 @@ export class PropertyRepository implements IPropertyRepository {
   }
 
   async softDelete(id: string, tenantId?: string): Promise<void> {
-    const query: any = { _id: new Types.ObjectId(id) };
-    
-    if (tenantId) {
-      query.tenant = new Types.ObjectId(tenantId);
-    }
+    const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(id) });
 
     const result = await this.propertyModel.findOneAndUpdate(
       query,
@@ -60,11 +62,7 @@ export class PropertyRepository implements IPropertyRepository {
   }
 
   async publish(id: string, tenantId?: string): Promise<Property> {
-    const query: any = { _id: new Types.ObjectId(id), deletedAt: null };
-    
-    if (tenantId) {
-      query.tenant = new Types.ObjectId(tenantId);
-    }
+    const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(id) });
 
     const session = await this.propertyModel.db.startSession();
     session.startTransaction();
@@ -78,23 +76,20 @@ export class PropertyRepository implements IPropertyRepository {
         throw new NotFoundException(`Property with id ${id} not found`);
       }
 
-      // Transactional validation: Must have at least one image
-      if (!property.images || property.images.length === 0) {
-        throw new BadRequestException('Property must have at least one image to publish');
-      }
-
-      // Ensure property is in draft state
-      if (property.status !== PropertyStatus.DRAFT) {
-        throw new BadRequestException('Only draft properties can be published');
-      }
-
-      property.status = PropertyStatus.PUBLISHED;
-      property.publishedAt = new Date();
+      // Convert to domain for validation
+      const domainProperty = this.toDomain(property);
+      
+      // Validate and publish
+      domainProperty.publish();
+      
+      // Update entity
+      property.status = domainProperty.status;
+      property.publishedAt = domainProperty.publishedAt;
       
       await property.save({ session });
       await session.commitTransaction();
 
-      return this.toDomain(property);
+      return domainProperty;
     } catch (error) {
       await session.abortTransaction();
       throw error;
@@ -104,11 +99,7 @@ export class PropertyRepository implements IPropertyRepository {
   }
 
   async archive(id: string, tenantId?: string): Promise<Property> {
-    const query: any = { _id: new Types.ObjectId(id), deletedAt: null };
-    
-    if (tenantId) {
-      query.tenant = new Types.ObjectId(tenantId);
-    }
+    const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(id) });
 
     const updated = await this.propertyModel
       .findOneAndUpdate(
@@ -127,11 +118,7 @@ export class PropertyRepository implements IPropertyRepository {
   }
 
   async disable(id: string, disabledBy: string, tenantId?: string): Promise<Property> {
-    const query: any = { _id: new Types.ObjectId(id), deletedAt: null };
-    
-    if (tenantId) {
-      query.tenant = new Types.ObjectId(tenantId);
-    }
+    const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(id) });
 
     const updated = await this.propertyModel
       .findOneAndUpdate(
@@ -155,11 +142,7 @@ export class PropertyRepository implements IPropertyRepository {
   }
 
   async enable(id: string, tenantId?: string): Promise<Property> {
-    const query: any = { _id: new Types.ObjectId(id), deletedAt: null };
-    
-    if (tenantId) {
-      query.tenant = new Types.ObjectId(tenantId);
-    }
+    const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(id) });
 
     const updated = await this.propertyModel
       .findOneAndUpdate(
@@ -182,11 +165,7 @@ export class PropertyRepository implements IPropertyRepository {
   }
 
   async findById(id: string, tenantId?: string): Promise<Property | null> {
-    const query: any = { _id: new Types.ObjectId(id), deletedAt: null };
-    
-    if (tenantId) {
-      query.tenant = new Types.ObjectId(tenantId);
-    }
+    const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(id) });
 
     const entity = await this.propertyModel
       .findOne(query)
@@ -199,14 +178,7 @@ export class PropertyRepository implements IPropertyRepository {
   }
 
   async findByOwner(ownerId: string, tenantId?: string, status?: PropertyStatus): Promise<Property[]> {
-    const query: any = { 
-      owner: new Types.ObjectId(ownerId), 
-      deletedAt: null,
-    };
-    
-    if (tenantId) {
-      query.tenant = new Types.ObjectId(tenantId);
-    }
+    const query = this.buildTenantQuery(tenantId, { owner: new Types.ObjectId(ownerId) });
     
     if (status) {
       query.status = status;
@@ -222,78 +194,94 @@ export class PropertyRepository implements IPropertyRepository {
     return entities.map(entity => this.toDomain(entity));
   }
 
+
   async findAllPaginated(query: QueryPropertyDto, tenantId?: string): Promise<{
-    data: Property[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
-    const filter: any = { deletedAt: null };
-    
-    if (tenantId) {
-      filter.tenant = new Types.ObjectId(tenantId);
+  data: Property[];
+  total: number;
+  page: number;
+  limit: number;
+}> {
+  const filter = this.buildTenantQuery(tenantId);
+  
+  if (query.status) {
+    filter.status = query.status;
+  }
+  
+  if (query.city) {
+    filter['location.city'] = new RegExp(query.city, 'i');
+  }
+  
+  if (query.type) {
+    filter.type = query.type;
+  }
+  
+  if (query.minPrice || query.maxPrice) {
+    filter.price = {};
+    if (query.minPrice !== undefined) {
+      filter.price.$gte = Number(query.minPrice);
     }
-    
-    if (query.status) {
-      filter.status = query.status;
+    if (query.maxPrice !== undefined) {
+      filter.price.$lte = Number(query.maxPrice);
     }
-    
-    if (query.city) {
-      filter['location.city'] = new RegExp(query.city, 'i');
-    }
-    
-    if (query.type) {
-      filter.type = query.type;
-    }
-    
-    if (query.minPrice || query.maxPrice) {
-      filter.price = {};
-      if (query.minPrice !== undefined) {
-        filter.price.$gte = Number(query.minPrice);
-      }
-      if (query.maxPrice !== undefined) {
-        filter.price.$lte = Number(query.maxPrice);
-      }
-    }
-
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 10;
-    const skip = (page - 1) * limit;
-    const sortBy = query.sortBy ?? 'createdAt';
-    const sortOrder = query.sortOrder === 'asc' ? 1 : -1;
-    
-    const sort: Record<string, 1 | -1> = { [sortBy]: sortOrder as 1 | -1 };
-
-    const [entities, total] = await Promise.all([
-      this.propertyModel
-        .find(filter)
-        .populate('owner', 'name email')
-        .populate('tenant', 'name slug')
-        .sort(sort)
-        .skip(skip)
-        .limit(limit)
-        .exec(),
-      this.propertyModel.countDocuments(filter).exec(),
-    ]);
-
-    return {
-      data: entities.map(entity => this.toDomain(entity)),
-      total,
-      page,
-      limit,
-    };
   }
 
+  // Add geospatial query if near coordinates provided
+  if (query.near && query.maxDistance) {
+    try {
+      const [lngStr, latStr] = query.near.split(',');
+      const lng = parseFloat(lngStr);
+      const lat = parseFloat(latStr);
+      
+      if (!isNaN(lng) && !isNaN(lat)) {
+        filter['location.coordinates'] = {
+          $near: {
+            $geometry: {
+              type: 'Point',
+              coordinates: [lng, lat]
+            },
+            $maxDistance: query.maxDistance
+          }
+        };
+      }
+    } catch (error) {
+      console.warn('Invalid geospatial query:', error);
+    }
+  }
+
+  const page = query.page ?? 1;
+  const limit = query.limit ?? 10;
+  const skip = (page - 1) * limit;
+  const sortBy = query.sortBy ?? 'createdAt';
+  const sortOrder = query.sortOrder === 'asc' ? 1 : -1;
+  
+  const sort: Record<string, 1 | -1> = { [sortBy]: sortOrder as 1 | -1 };
+
+  const [entities, total] = await Promise.all([
+    this.propertyModel
+      .find(filter)
+      .populate('owner', 'name email')
+      .populate('tenant', 'name slug')
+      .sort(sort)
+      .skip(skip)
+      .limit(limit)
+      .exec(),
+    this.propertyModel.countDocuments(filter).exec(),
+  ]);
+
+  return {
+    data: entities.map(entity => this.toDomain(entity)),
+    total,
+    page,
+    limit,
+  };
+}
+
+
   async findFavorites(userId: string, tenantId?: string): Promise<Property[]> {
-    const query: any = {
+    const query = this.buildTenantQuery(tenantId, {
       favoritedBy: new Types.ObjectId(userId),
       status: PropertyStatus.PUBLISHED,
-      deletedAt: null,
-    };
-    
-    if (tenantId) {
-      query.tenant = new Types.ObjectId(tenantId);
-    }
+    });
 
     const entities = await this.propertyModel
       .find(query)
@@ -305,14 +293,7 @@ export class PropertyRepository implements IPropertyRepository {
   }
 
   async isFavorited(propertyId: string, userId: string, tenantId?: string): Promise<boolean> {
-    const query: any = { 
-      _id: new Types.ObjectId(propertyId),
-      deletedAt: null,
-    };
-    
-    if (tenantId) {
-      query.tenant = new Types.ObjectId(tenantId);
-    }
+    const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(propertyId) });
 
     const property = await this.propertyModel.findOne(query);
     if (!property) {
@@ -325,14 +306,7 @@ export class PropertyRepository implements IPropertyRepository {
   }
 
   async addToFavorites(propertyId: string, userId: string, tenantId?: string): Promise<Property> {
-    const query: any = { 
-      _id: new Types.ObjectId(propertyId),
-      deletedAt: null,
-    };
-    
-    if (tenantId) {
-      query.tenant = new Types.ObjectId(tenantId);
-    }
+    const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(propertyId) });
 
     const property = await this.propertyModel.findOne(query);
     
@@ -352,14 +326,7 @@ export class PropertyRepository implements IPropertyRepository {
   }
 
   async removeFromFavorites(propertyId: string, userId: string, tenantId?: string): Promise<Property> {
-    const query: any = { 
-      _id: new Types.ObjectId(propertyId),
-      deletedAt: null,
-    };
-    
-    if (tenantId) {
-      query.tenant = new Types.ObjectId(tenantId);
-    }
+    const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(propertyId) });
 
     const property = await this.propertyModel.findOne(query);
     
@@ -383,11 +350,7 @@ export class PropertyRepository implements IPropertyRepository {
   }
 
   async incrementViews(id: string, tenantId?: string): Promise<void> {
-    const query: any = { _id: new Types.ObjectId(id), deletedAt: null };
-    
-    if (tenantId) {
-      query.tenant = new Types.ObjectId(tenantId);
-    }
+    const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(id) });
 
     await this.propertyModel.findOneAndUpdate(
       query,
@@ -397,6 +360,8 @@ export class PropertyRepository implements IPropertyRepository {
   }
 
   async getTenantMetrics(tenantId: string): Promise<any> {
+    const tenantObjectId = new Types.ObjectId(tenantId);
+    
     const [
       totalProperties,
       publishedProperties,
@@ -410,26 +375,26 @@ export class PropertyRepository implements IPropertyRepository {
     ] = await Promise.all([
       // Counts
       this.propertyModel.countDocuments({ 
-        tenant: new Types.ObjectId(tenantId),
+        tenant: tenantObjectId,
         deletedAt: null,
       }),
       this.propertyModel.countDocuments({ 
-        tenant: new Types.ObjectId(tenantId),
+        tenant: tenantObjectId,
         status: PropertyStatus.PUBLISHED,
         deletedAt: null,
       }),
       this.propertyModel.countDocuments({ 
-        tenant: new Types.ObjectId(tenantId),
+        tenant: tenantObjectId,
         status: PropertyStatus.DRAFT,
         deletedAt: null,
       }),
       this.propertyModel.countDocuments({ 
-        tenant: new Types.ObjectId(tenantId),
+        tenant: tenantObjectId,
         status: PropertyStatus.ARCHIVED,
         deletedAt: null,
       }),
       this.propertyModel.countDocuments({ 
-        tenant: new Types.ObjectId(tenantId),
+        tenant: tenantObjectId,
         status: PropertyStatus.DISABLED,
         deletedAt: null,
       }),
@@ -438,7 +403,7 @@ export class PropertyRepository implements IPropertyRepository {
       this.propertyModel.aggregate([
         {
           $match: {
-            tenant: new Types.ObjectId(tenantId),
+            tenant: tenantObjectId,
             deletedAt: null,
           }
         },
@@ -453,7 +418,7 @@ export class PropertyRepository implements IPropertyRepository {
       this.propertyModel.aggregate([
         {
           $match: {
-            tenant: new Types.ObjectId(tenantId),
+            tenant: tenantObjectId,
             deletedAt: null,
           }
         },
@@ -468,7 +433,7 @@ export class PropertyRepository implements IPropertyRepository {
       // Recent data
       this.propertyModel
         .find({
-          tenant: new Types.ObjectId(tenantId),
+          tenant: tenantObjectId,
           deletedAt: null,
         })
         .sort({ createdAt: -1 })
@@ -478,7 +443,7 @@ export class PropertyRepository implements IPropertyRepository {
       
       this.propertyModel
         .find({
-          tenant: new Types.ObjectId(tenantId),
+          tenant: tenantObjectId,
           deletedAt: null,
           status: PropertyStatus.PUBLISHED,
         })
@@ -552,8 +517,10 @@ export class PropertyRepository implements IPropertyRepository {
     property.status = entity.status || PropertyStatus.DRAFT;
     property.type = entity.type;
     property.ownerId = entity.owner.toString();
+    property.tenantId = entity.tenant?.toString();
     property.views = entity.views || 0;
     property.favoritesCount = entity.favoritesCount || 0;
+    property.favoritedBy = entity.favoritedBy.map(id => id.toString());
     property.metadata = entity.metadata;
     property.publishedAt = entity.publishedAt;
     property.deletedAt = entity.deletedAt;
@@ -561,9 +528,6 @@ export class PropertyRepository implements IPropertyRepository {
     property.disabledBy = entity.disabledBy?.toString();
     property.createdAt = entity.createdAt;
     property.updatedAt = entity.updatedAt;
-    
-    // Add tenantId to domain
-    (property as any).tenantId = entity.tenant?.toString();
     
     return property;
   }
@@ -594,6 +558,7 @@ export class PropertyRepository implements IPropertyRepository {
       owner: new Types.ObjectId(property.ownerId),
       views: property.views,
       favoritesCount: property.favoritesCount,
+      favoritedBy: property.favoritedBy.map(id => new Types.ObjectId(id)),
       metadata: property.metadata,
       publishedAt: property.publishedAt,
       deletedAt: property.deletedAt,
@@ -602,6 +567,10 @@ export class PropertyRepository implements IPropertyRepository {
     
     if (property.disabledBy) {
       entity.disabledBy = new Types.ObjectId(property.disabledBy);
+    }
+    
+    if (property.tenantId) {
+      entity.tenant = new Types.ObjectId(property.tenantId);
     }
     
     return entity;

@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Body, Put, Param, Delete, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
-import { Permissions } from '../auth/decorators/permissions.decorator';
+import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { GetUser } from '../auth/decorators/get-user.decorator';
 import { Permission } from '../shared/constants/permissions';
 import { UsersService } from './users.service';
@@ -18,14 +18,14 @@ export class UsersController {
 
   @Get()
   @UseGuards(PermissionsGuard)
-  @Permissions(Permission.USER_READ_ALL)
+  @RequirePermissions(Permission.USER_READ_ALL)
   async findAll() {
     return this.usersService.findAll();
   }
 
   @Get(':id')
   @UseGuards(PermissionsGuard)
-  @Permissions(Permission.USER_READ_ALL)
+  @RequirePermissions(Permission.USER_READ_ALL)
   async findOne(@Param('id') id: string) {
     return this.usersService.findByIdOrThrow(id);
   }
@@ -37,14 +37,14 @@ export class UsersController {
 
   @Delete(':id')
   @UseGuards(PermissionsGuard)
-  @Permissions(Permission.USER_UPDATE_ALL)
+  @RequirePermissions(Permission.USER_UPDATE_ALL)
   async remove(@Param('id') id: string) {
     return this.usersService.remove(id);
   }
 
   @Post(':userId/roles/:roleId')
   @UseGuards(PermissionsGuard)
-  @Permissions(Permission.USER_UPDATE_ALL)
+  @RequirePermissions(Permission.USER_UPDATE_ALL)
   async addRole(
     @Param('userId') userId: string,
     @Param('roleId') roleId: string,
@@ -54,7 +54,7 @@ export class UsersController {
 
   @Delete(':userId/roles/:roleId')
   @UseGuards(PermissionsGuard)
-  @Permissions(Permission.USER_UPDATE_ALL)
+  @RequirePermissions(Permission.USER_UPDATE_ALL)
   async removeRole(
     @Param('userId') userId: string,
     @Param('roleId') roleId: string,

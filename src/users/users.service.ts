@@ -1,10 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { User, UserDocument } from './schemas/user.schema';
 import { Role, RoleDocument } from '../roles/schemas/role.schema';
+import { Tenant, TenantDocument } from '../tenants/schemas/tenant.schema'; // Add this import
 import * as bcrypt from 'bcrypt';
-import { TenantsService } from 'src/tenants/tenants.service';
 import { CreateUserDto } from './dto/create-user.dto';
 
 @Injectable()
@@ -12,7 +12,7 @@ export class UsersService {
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Role.name) private roleModel: Model<RoleDocument>,
-    @Inject(TenantsService) private tenantsService: TenantsService,
+    @InjectModel(Tenant.name) private tenantModel: Model<TenantDocument>, // Add this line
   ) {}
 
   async findByEmail(email: string): Promise<UserDocument | null> {
@@ -46,9 +46,7 @@ export class UsersService {
       .exec();
   }
 
-
-
-    async create(createUserDto: CreateUserDto): Promise<UserDocument> {
+  async create(createUserDto: CreateUserDto): Promise<UserDocument> {
     // Hash password if provided
     const hashedPassword = createUserDto.password 
       ? await bcrypt.hash(createUserDto.password, 10)
@@ -75,8 +73,19 @@ export class UsersService {
     // Get or create default tenant
     let tenantId = createUserDto.tenant;
     if (!tenantId) {
-      const defaultTenant = await this.tenantsService.getDefaultTenant();
-      tenantId = defaultTenant._id;
+      const defaultTenant = await this.tenantModel.findOne({ slug: 'main' });
+      if (!defaultTenant) {
+        // Create default tenant if it doesn't exist
+        const newTenant = await this.tenantModel.create({
+          name: 'Main Platform',
+          slug: 'main',
+          description: 'Default platform tenant',
+          isActive: true,
+        });
+        tenantId = newTenant._id;
+      } else {
+        tenantId = defaultTenant._id;
+      }
     }
 
     const userData = {
@@ -93,14 +102,6 @@ export class UsersService {
     const user = new this.userModel(userData);
     return user.save();
   }
-
-
-private async getDefaultTenant(): Promise<any> {
-  // In a real system, you might have a Tenant model
-  // For now, return null or create a default tenant
-  return null;
-}
-
 
   async update(id: string, updateData: Partial<User>): Promise<UserDocument> {
     // Don't allow password update through this method

@@ -12,29 +12,42 @@ import {
   HttpStatus,
   BadRequestException,
   Request,
+  UseInterceptors,
+  UploadedFiles,
+  NotFoundException,
 } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { PropertyCommands } from '../usecases/property/property.commands';
 import { PropertyQueries } from '../usecases/property/property.queries';
 import { PermissionsGuard } from '../../auth/guards/permissions.guard';
-import { Permissions } from '../../auth/decorators/permissions.decorator';
+import { RequirePermissions } from '../../auth/decorators/permissions.decorator';
 import { Permission } from '../../shared/constants/permissions';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { CreatePropertyDto } from '../dto/create-property.dto';
 import { GetUser } from 'src/auth/decorators/get-user.decorator';
 import { QueryPropertyDto } from '../dto/query-property.dto';
 import { UpdatePropertyDto } from '../dto/update-property.dto';
-import { MetricsPropertyDto } from '../dto/metrics-property.dto';
+import { FilesInterceptor } from '@nestjs/platform-express';
+import { PropertyImagesService } from '../services/property-images.service';
 
+@ApiTags('Properties')
+@ApiBearerAuth()
 @Controller('properties')
 export class PropertyController {
   constructor(
     private readonly commands: PropertyCommands,
     private readonly queries: PropertyQueries,
+     private readonly propertyImagesService: PropertyImagesService,
   ) {}
 
   @Post()
   @UseGuards(JwtAuthGuard, PermissionsGuard)
-  @Permissions(Permission.PROPERTY_CREATE)
+  @RequirePermissions(Permission.PROPERTY_CREATE)
+  @ApiOperation({ summary: 'Create a new property' })
+  @ApiResponse({ status: 201, description: 'Property created successfully' })
+  @ApiResponse({ status: 400, description: 'Bad request - validation failed' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - insufficient permissions' })
   async create(
     @Body() createPropertyDto: CreatePropertyDto,
     @GetUser() user: any,
@@ -47,6 +60,16 @@ export class PropertyController {
   }
 
   @Get()
+  @ApiOperation({ summary: 'Get all properties with pagination and filtering' })
+  @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 10 })
+  @ApiQuery({ name: 'status', required: false, enum: ['draft', 'published', 'archived', 'disabled'] })
+  @ApiQuery({ name: 'city', required: false, type: String, example: 'New York' })
+  @ApiQuery({ name: 'minPrice', required: false, type: Number, example: 1000 })
+  @ApiQuery({ name: 'maxPrice', required: false, type: Number, example: 5000 })
+  @ApiQuery({ name: 'type', required: false, enum: ['apartment', 'house', 'villa', 'commercial', 'land'] })
+  @ApiQuery({ name: 'near', required: false, type: String, description: 'Coordinates: lng,lat (e.g., -73.935242,40.730610)' })
+  @ApiQuery({ name: 'maxDistance', required: false, type: Number, description: 'Distance in meters (default: 5000)', example: 5000 })
   async findAll(
     @Query() query: QueryPropertyDto,
     @GetUser() user?: any,
@@ -61,6 +84,9 @@ export class PropertyController {
 
   @Get('my')
   @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Get current user properties' })
+  @ApiResponse({ status: 200, description: 'User properties retrieved' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   async findMyProperties(
     @Query('status') status: string,
     @GetUser() user: any,
@@ -74,7 +100,10 @@ export class PropertyController {
 
   @Get('favorites')
   @UseGuards(JwtAuthGuard, PermissionsGuard)
-  @Permissions(Permission.FAVORITE_READ)
+  @RequirePermissions(Permission.FAVORITE_READ)
+  @ApiOperation({ summary: 'Get user favorite properties' })
+  @ApiResponse({ status: 200, description: 'Favorite properties retrieved' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   async findFavorites(@GetUser() user: any, @Request() req: any) {
     if (!req.tenantId) {
       throw new BadRequestException('Tenant ID is required');
@@ -83,6 +112,9 @@ export class PropertyController {
   }
 
   @Get(':id')
+  @ApiOperation({ summary: 'Get property by ID' })
+  @ApiResponse({ status: 200, description: 'Property found' })
+  @ApiResponse({ status: 404, description: 'Property not found' })
   async findOne(
     @Param('id') id: string,
     @GetUser() user?: any,
@@ -92,15 +124,34 @@ export class PropertyController {
     const permissions = user?.permissions || [];
     const tenantId = req?.tenantId;
     
-    // Increment view count (optional, can be moved to middleware)
     await this.queries.incrementViews(id, tenantId);
     
     return this.queries.findById(id, tenantId, userId, permissions);
   }
 
+  @Get(':id/validate')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Validate property for publishing' })
+  @ApiResponse({ status: 200, description: 'Validation result' })
+  @ApiResponse({ status: 404, description: 'Property not found' })
+  async validateForPublishing(
+    @Param('id') id: string,
+    @GetUser() user: any,
+    @Request() req: any,
+  ) {
+    if (!req.tenantId) {
+      throw new BadRequestException('Tenant ID is required');
+    }
+    return this.commands.validateForPublishing(id, req.tenantId);
+  }
+
   @Patch(':id')
   @UseGuards(JwtAuthGuard, PermissionsGuard)
-  @Permissions(Permission.PROPERTY_UPDATE_OWN, Permission.PROPERTY_UPDATE_ALL)
+  @RequirePermissions(Permission.PROPERTY_UPDATE_OWN, Permission.PROPERTY_UPDATE_ALL)
+  @ApiOperation({ summary: 'Update property' })
+  @ApiResponse({ status: 200, description: 'Property updated' })
+  @ApiResponse({ status: 400, description: 'Cannot edit published property' })
+  @ApiResponse({ status: 403, description: 'Forbidden - insufficient permissions' })
   async update(
     @Param('id') id: string,
     @Body() updatePropertyDto: UpdatePropertyDto,
@@ -121,8 +172,11 @@ export class PropertyController {
 
   @Delete(':id')
   @UseGuards(JwtAuthGuard, PermissionsGuard)
-  @Permissions(Permission.PROPERTY_DELETE_OWN, Permission.PROPERTY_DELETE_ALL)
+  @RequirePermissions(Permission.PROPERTY_DELETE_OWN, Permission.PROPERTY_DELETE_ALL)
   @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Soft delete property' })
+  @ApiResponse({ status: 204, description: 'Property deleted' })
+  @ApiResponse({ status: 403, description: 'Forbidden - insufficient permissions' })
   async remove(
     @Param('id') id: string,
     @GetUser() user: any,
@@ -136,7 +190,10 @@ export class PropertyController {
 
   @Post(':id/publish')
   @UseGuards(JwtAuthGuard, PermissionsGuard)
-  @Permissions(Permission.PROPERTY_PUBLISH)
+  @RequirePermissions(Permission.PROPERTY_PUBLISH)
+  @ApiOperation({ summary: 'Publish property' })
+  @ApiResponse({ status: 200, description: 'Property published' })
+  @ApiResponse({ status: 400, description: 'Validation failed' })
   async publish(
     @Param('id') id: string,
     @GetUser() user: any,
@@ -150,7 +207,9 @@ export class PropertyController {
 
   @Post(':id/archive')
   @UseGuards(JwtAuthGuard, PermissionsGuard)
-  @Permissions(Permission.PROPERTY_ARCHIVE)
+  @RequirePermissions(Permission.PROPERTY_ARCHIVE)
+  @ApiOperation({ summary: 'Archive property' })
+  @ApiResponse({ status: 200, description: 'Property archived' })
   async archive(
     @Param('id') id: string,
     @GetUser() user: any,
@@ -164,7 +223,9 @@ export class PropertyController {
 
   @Post(':id/favorite')
   @UseGuards(JwtAuthGuard, PermissionsGuard)
-  @Permissions(Permission.FAVORITE_CREATE)
+  @RequirePermissions(Permission.FAVORITE_CREATE)
+  @ApiOperation({ summary: 'Add property to favorites' })
+  @ApiResponse({ status: 200, description: 'Added to favorites' })
   async addFavorite(
     @Param('id') id: string,
     @GetUser() user: any,
@@ -178,8 +239,10 @@ export class PropertyController {
 
   @Delete(':id/favorite')
   @UseGuards(JwtAuthGuard, PermissionsGuard)
-  @Permissions(Permission.FAVORITE_DELETE)
+  @RequirePermissions(Permission.FAVORITE_DELETE)
   @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Remove property from favorites' })
+  @ApiResponse({ status: 204, description: 'Removed from favorites' })
   async removeFavorite(
     @Param('id') id: string,
     @GetUser() user: any,
@@ -191,16 +254,12 @@ export class PropertyController {
     await this.commands.removeFromFavorites(id, user.userId, req.tenantId);
   }
 
-  @Get('metrics/summary')
-  @UseGuards(JwtAuthGuard, PermissionsGuard)
-  @Permissions(Permission.SYSTEM_METRICS_READ)
-  async getMetrics(@GetUser() user: any) {
-    return this.queries.getMetrics(user.permissions);
-  }
-
   @Post(':id/disable')
   @UseGuards(JwtAuthGuard, PermissionsGuard)
-  @Permissions(Permission.PROPERTY_UPDATE_ALL)
+  @RequirePermissions(Permission.PROPERTY_UPDATE_ALL)
+  @ApiOperation({ summary: 'Disable property (Admin only)' })
+  @ApiResponse({ status: 200, description: 'Property disabled' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin only' })
   async disable(
     @Param('id') id: string,
     @GetUser() user: any,
@@ -219,7 +278,10 @@ export class PropertyController {
 
   @Post(':id/enable')
   @UseGuards(JwtAuthGuard, PermissionsGuard)
-  @Permissions(Permission.PROPERTY_UPDATE_ALL)
+  @RequirePermissions(Permission.PROPERTY_UPDATE_ALL)
+  @ApiOperation({ summary: 'Enable property (Admin only)' })
+  @ApiResponse({ status: 200, description: 'Property enabled' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin only' })
   async enable(
     @Param('id') id: string,
     @GetUser() user: any,
@@ -236,29 +298,11 @@ export class PropertyController {
     );
   }
 
-  @Get('metrics/property')
-  @UseGuards(JwtAuthGuard, PermissionsGuard)
-  @Permissions(Permission.SYSTEM_METRICS_READ)
-  async getPropertyMetrics(
-    @Query() metricsDto: MetricsPropertyDto,
-    @GetUser() user: any,
-  ) {
-    return this.queries.getPropertyMetrics(metricsDto.timeRange);
-  }
-
-  @Get('admin/metrics/tenant')
-  @UseGuards(JwtAuthGuard, PermissionsGuard)
-  @Permissions(Permission.SYSTEM_METRICS_READ)
-  async getTenantMetrics(@GetUser() user: any, @Request() req: any) {
-    if (!req.tenantId) {
-      throw new BadRequestException('Tenant ID is required');
-    }
-    return this.queries.getTenantMetrics(req.tenantId);
-  }
-
   @Get(':id/favorite/status')
   @UseGuards(JwtAuthGuard, PermissionsGuard)
-  @Permissions(Permission.FAVORITE_READ)
+  @RequirePermissions(Permission.FAVORITE_READ)
+  @ApiOperation({ summary: 'Check if property is favorited' })
+  @ApiResponse({ status: 200, description: 'Favorite status retrieved' })
   async getFavoriteStatus(
     @Param('id') id: string,
     @GetUser() user: any,
@@ -275,13 +319,74 @@ export class PropertyController {
     return { isFavorited };
   }
 
-  @Get(':id/view')
-  async incrementView(
+
+ 
+  
+
+    @Post(':id/images')
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(Permission.PROPERTY_UPDATE_OWN)
+  @UseInterceptors(FilesInterceptor('images', 10))
+  @ApiOperation({ summary: 'Upload images for a property' })
+  @ApiResponse({ status: 200, description: 'Images uploaded successfully' })
+  async uploadPropertyImages(
     @Param('id') id: string,
+    @UploadedFiles() files: Express.Multer.File[],
+    @GetUser() user: any,
     @Request() req: any,
   ) {
-    const tenantId = req?.tenantId;
-    await this.queries.incrementViews(id, tenantId);
-    return { success: true, message: 'View count incremented' };
+    if (!req.tenantId) {
+      throw new BadRequestException('Tenant ID is required');
+    }
+
+    const result = await this.propertyImagesService.uploadPropertyImages(
+      id,
+      files,
+      user.userId,
+      req.tenantId,
+      user.permissions,
+    );
+
+    return { 
+      success: true, 
+      ...result,
+      message: 'Images uploaded successfully'
+    };
   }
+
+  @Delete(':id/images')
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(Permission.PROPERTY_UPDATE_OWN)
+  @ApiOperation({ summary: 'Delete images from a property' })
+  @ApiResponse({ status: 200, description: 'Images deleted successfully' })
+  async deletePropertyImages(
+    @Param('id') id: string,
+    @Body() body: { urls: string[] },
+    @GetUser() user: any,
+    @Request() req: any,
+  ) {
+    if (!req.tenantId) {
+      throw new BadRequestException('Tenant ID is required');
+    }
+
+    if (!body.urls || !Array.isArray(body.urls) || body.urls.length === 0) {
+      throw new BadRequestException('No image URLs provided');
+    }
+
+    await this.propertyImagesService.deletePropertyImages(
+      id,
+      body.urls,
+      user.userId,
+      req.tenantId,
+      user.permissions,
+    );
+
+    return { 
+      success: true, 
+      message: 'Images deleted successfully',
+      deletedCount: body.urls.length 
+    };
+  }
+  
+
 }

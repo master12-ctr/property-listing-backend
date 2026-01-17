@@ -1,4 +1,3 @@
-
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { MetricsService } from './metrics.service';
@@ -7,6 +6,7 @@ import { User, UserSchema } from '../users/schemas/user.schema';
 import { Contact, ContactSchema } from '../contact/schemas/contact.schema';
 import { Role, RoleSchema } from '../roles/schemas/role.schema';
 import { Tenant, TenantSchema } from '../tenants/schemas/tenant.schema';
+import { MetricsController } from './metrics.controller';
 
 @Module({
   imports: [
@@ -18,6 +18,7 @@ import { Tenant, TenantSchema } from '../tenants/schemas/tenant.schema';
       { name: Tenant.name, schema: TenantSchema },
     ]),
   ],
+  controllers: [MetricsController],
   providers: [MetricsService],
   exports: [MetricsService],
 })

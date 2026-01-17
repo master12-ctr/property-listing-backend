@@ -13,6 +13,11 @@ export enum PropertyType {
   LAND = 'land',
 }
 
+export interface PropertyValidationResult {
+  isValid: boolean;
+  errors: string[];
+}
+
 export class Property {
   id: string;
   title: string;
@@ -32,7 +37,7 @@ export class Property {
   status: PropertyStatus;
   type: PropertyType;
   ownerId: string;
-  tenantId?: string; // Added for multi-tenancy
+  tenantId?: string;
   views: number = 0;
   favoritesCount: number = 0;
   favoritedBy: string[] = [];
@@ -51,16 +56,51 @@ export class Property {
     this.favoritedBy = this.favoritedBy || [];
   }
 
+  validateForPublishing(): PropertyValidationResult {
+    const errors: string[] = [];
+
+    if (!this.title?.trim()) {
+      errors.push('Title is required');
+    }
+
+    if (!this.description?.trim()) {
+      errors.push('Description is required');
+    }
+
+    if (!this.location?.address?.trim() || !this.location?.city?.trim() || !this.location?.country?.trim()) {
+      errors.push('Location must include address, city, and country');
+    }
+
+    if (this.price === undefined || this.price === null || this.price < 0) {
+      errors.push('Valid price is required');
+    }
+
+    if (!this.images || this.images.length === 0) {
+      errors.push('At least one image is required');
+    } else if (this.images.length > 10) {
+      errors.push('Maximum 10 images allowed');
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  }
+
   publish(): void {
     if (this.status === PropertyStatus.PUBLISHED) {
       throw new Error('Property is already published');
     }
+    
     if (this.status === PropertyStatus.DISABLED) {
       throw new Error('Disabled properties cannot be published');
     }
-    if (!this.images || this.images.length === 0) {
-      throw new Error('Property must have at least one image to publish');
+
+    const validation = this.validateForPublishing();
+    if (!validation.isValid) {
+      throw new Error(`Cannot publish property: ${validation.errors.join(', ')}`);
     }
+
     this.status = PropertyStatus.PUBLISHED;
     this.publishedAt = new Date();
   }
@@ -92,6 +132,7 @@ export class Property {
   }
 
   canBeEdited(): boolean {
+    // Published properties cannot be edited per requirement
     return this.status !== PropertyStatus.PUBLISHED && this.status !== PropertyStatus.DISABLED;
   }
 
