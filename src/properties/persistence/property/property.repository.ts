@@ -166,35 +166,22 @@ private buildTenantQuery(tenantId?: string, baseQuery: any = {}): any {
 
 
   async findById(id: string, tenantId?: string): Promise<Property | null> {
-  try {
-    const query: any = { _id: new Types.ObjectId(id), deletedAt: null };
-    
-    // IMPORTANT: Only add tenant filter if tenantId is provided
-    // This allows property owners to find their properties even without tenant context
-    if (tenantId) {
-      query.tenant = new Types.ObjectId(tenantId);
-    } else {
-      // If no tenantId provided, we need to be more flexible
-      // This might be the issue - the property might have tenant, but we're not filtering by it
-      console.warn(`Finding property ${id} without tenant filter`);
-    }
-    
-    console.log(`Repository findById query:`, JSON.stringify(query));
+  const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(id) });
+  
+  console.log(`Repository findById query:`, JSON.stringify(query));
 
-    const entity = await this.propertyModel
-      .findOne(query)
-      .populate('owner', 'name email')
-      .populate('tenant', 'name slug')
-      .populate('disabledBy', 'name email')
-      .exec();
-    
-    console.log(`Repository findById found:`, entity ? `Property found with id ${entity._id}` : 'Property not found');
-    
-    return entity ? this.toDomain(entity) : null;
-  } catch (error) {
-    console.error(`Error in findById for property ${id}:`, error);
-    return null;
+  const entity = await this.propertyModel
+    .findOne(query)
+    .populate('owner', 'name email')
+    .populate('tenant', 'name slug')
+    .populate('disabledBy', 'name email')
+    .exec();
+  
+  if (entity) {
+    console.log(`Found property: ${entity._id}, owner: ${entity.owner._id}, tenant: ${entity.tenant._id}`);
   }
+  
+  return entity ? this.toDomain(entity) : null;
 }
 
 
@@ -526,45 +513,60 @@ async findFavorites(userId: string, tenantId?: string): Promise<Property[]> {
     };
   }
 
-  private toDomain(entity: PropertyEntity): Property {
-    const property = new Property();
-    property.id = entity._id.toString();
-    property.title = entity.title;
-    property.description = entity.description;
-    
-    property.location = {
-      address: entity.location.address || '',
-      city: entity.location.city || '',
-      country: entity.location.country || '',
-      state: entity.location.state,
+private toDomain(entity: PropertyEntity): Property {
+  const property = new Property();
+  property.id = entity._id.toString();
+  property.title = entity.title;
+  property.description = entity.description;
+  
+  property.location = {
+    address: entity.location.address || '',
+    city: entity.location.city || '',
+    country: entity.location.country || '',
+    state: entity.location.state,
+  };
+  
+  if (entity.location.coordinates) {
+    property.location.coordinates = {
+      type: entity.location.coordinates.type || 'Point',
+      coordinates: entity.location.coordinates.coordinates || [0, 0],
     };
-    
-    if (entity.location.coordinates) {
-      property.location.coordinates = {
-        type: entity.location.coordinates.type || 'Point',
-        coordinates: entity.location.coordinates.coordinates || [0, 0],
-      };
-    }
-    
-    property.price = entity.price || 0;
-    property.images = entity.images || [];
-    property.status = entity.status || PropertyStatus.DRAFT;
-    property.type = entity.type;
-    property.ownerId = entity.owner.toString();
-    property.tenantId = entity.tenant?.toString();
-    property.views = entity.views || 0;
-    property.favoritesCount = entity.favoritesCount || 0;
-    property.favoritedBy = entity.favoritedBy.map(id => id.toString());
-    property.metadata = entity.metadata;
-    property.publishedAt = entity.publishedAt;
-    property.deletedAt = entity.deletedAt;
-    property.disabledAt = entity.disabledAt;
-    property.disabledBy = entity.disabledBy?.toString();
-    property.createdAt = entity.createdAt;
-    property.updatedAt = entity.updatedAt;
-    
-    return property;
   }
+  
+  property.price = entity.price || 0;
+  property.images = entity.images || [];
+  property.status = entity.status || PropertyStatus.DRAFT;
+  property.type = entity.type;
+  
+  // FIX: Extract owner ID as string, not object
+  if (entity.owner && typeof entity.owner === 'object' && (entity.owner as any)._id) {
+    // Owner is populated, extract the ID
+    property.ownerId = (entity.owner as any)._id.toString();
+  } else {
+    // Owner is just ObjectId
+    property.ownerId = entity.owner.toString();
+  }
+  
+  // FIX: Extract tenant ID as string
+  if (entity.tenant && typeof entity.tenant === 'object' && (entity.tenant as any)._id) {
+    property.tenantId = (entity.tenant as any)._id.toString();
+  } else if (entity.tenant) {
+    property.tenantId = entity.tenant.toString();
+  }
+  
+  property.views = entity.views || 0;
+  property.favoritesCount = entity.favoritesCount || 0;
+  property.favoritedBy = entity.favoritedBy.map(id => id.toString());
+  property.metadata = entity.metadata;
+  property.publishedAt = entity.publishedAt;
+  property.deletedAt = entity.deletedAt;
+  property.disabledAt = entity.disabledAt;
+  property.disabledBy = entity.disabledBy?.toString();
+  property.createdAt = entity.createdAt;
+  property.updatedAt = entity.updatedAt;
+  
+  return property;
+}
 
   private toEntity(property: Property): Partial<PropertyEntity> {
     const location: any = {

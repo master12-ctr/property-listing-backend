@@ -29,6 +29,7 @@ import { QueryPropertyDto } from '../dto/query-property.dto';
 import { UpdatePropertyDto } from '../dto/update-property.dto';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { PropertyImagesService } from '../services/property-images.service';
+import { OptionalJwtAuthGuard } from 'src/auth/guards/optional-jwt-auth.guard';
 
 @ApiTags('Properties')
 @ApiBearerAuth()
@@ -69,7 +70,9 @@ async create(
 }
 
   @Get()
-  @ApiOperation({ summary: 'Get all properties with pagination and filtering' })
+@UseGuards(OptionalJwtAuthGuard) // Add this line
+@ApiOperation({ summary: 'Get all properties with pagination and filtering' })
+
   @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 10 })
   @ApiQuery({ name: 'status', required: false, enum: ['draft', 'published', 'archived', 'disabled'] })
@@ -79,17 +82,17 @@ async create(
   @ApiQuery({ name: 'type', required: false, enum: ['apartment', 'house', 'villa', 'commercial', 'land'] })
   @ApiQuery({ name: 'near', required: false, type: String, description: 'Coordinates: lng,lat (e.g., -73.935242,40.730610)' })
   @ApiQuery({ name: 'maxDistance', required: false, type: Number, description: 'Distance in meters (default: 5000)', example: 5000 })
-  async findAll(
-    @Query() query: QueryPropertyDto,
-    @GetUser() user?: any,
-    @Request() req?: any,
-  ) {
-    const userId = user?.userId;
-    const permissions = user?.permissions || [];
-    const tenantId = req?.tenantId;
-    
-    return this.queries.findAll(query, tenantId, userId, permissions);
-  }
+async findAll(
+  @Query() query: QueryPropertyDto,
+  @GetUser() user?: any, 
+  @Request() req?: any,
+) {
+  const userId = user?.userId;
+  const permissions = user?.permissions || [];
+  const tenantId = req?.tenantId;
+  
+  return this.queries.findAll(query, tenantId, userId, permissions);
+}
 
   @Get('my')
   @UseGuards(JwtAuthGuard)
@@ -121,18 +124,18 @@ async create(
   }
 
 @Get(':id')
+@UseGuards(JwtAuthGuard) // Add JwtAuthGuard
 @ApiOperation({ summary: 'Get property by ID' })
 @ApiResponse({ status: 200, description: 'Property found' })
 @ApiResponse({ status: 404, description: 'Property not found' })
 async findOne(
   @Param('id') id: string,
-  @GetUser() user?: any,
-  @Request() req?: any,
+  @GetUser() user: any, // Now user will be extracted by JwtAuthGuard
+  @Request() req: any,
 ) {
   console.log(`GET /properties/${id} called`);
-  console.log(`User:`, user ? `ID: ${user.userId}, Permissions: ${JSON.stringify(user.permissions)}` : 'No user');
-  console.log(`Tenant ID from request:`, req?.tenantId);
-  console.log(`Request headers:`, req?.headers);
+  console.log(`User:`, user ? `ID: ${user.userId}, Permissions: ${JSON.stringify(user.permissions)}` : 'No user (user is null)');
+  console.log(`User object from guard:`, user);
   
   const userId = user?.userId;
   const permissions = user?.permissions || [];
@@ -140,10 +143,7 @@ async findOne(
   
   await this.queries.incrementViews(id, tenantId);
   
-  const result = await this.queries.findById(id, tenantId, userId, permissions);
-  console.log(`Property found:`, result ? `ID: ${result.id}, Status: ${result.status}, Owner: ${result.owner.id}` : 'Not found');
-  
-  return result;
+  return this.queries.findById(id, tenantId, userId, permissions);
 }
 
   @Get(':id/validate')

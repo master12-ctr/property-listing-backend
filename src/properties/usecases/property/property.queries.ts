@@ -76,56 +76,67 @@ export class PropertyQueries {
 
 
 
-
-
-
-
-
-
 async findById(
   propertyId: string,
   tenantId?: string,
   userId?: string,
   userPermissions: string[] = [],
 ): Promise<PropertyResponse> {
+  console.log(`findById called: propertyId=${propertyId}, tenantId=${tenantId}, userId=${userId}, permissions=${JSON.stringify(userPermissions)}`);
+  
   const property = await this.propertyRepository.findById(propertyId, tenantId);
   
   if (!property) {
+    console.log(`Property ${propertyId} not found`);
     throw new BadRequestException('Property not found');
   }
 
+  console.log(`Property found: id=${property.id}, status=${property.status}, ownerId=${property.ownerId}, tenantId=${property.tenantId}`);
+
   // If property is published, anyone can view it
   if (property.status === PropertyStatus.PUBLISHED) {
+    console.log(`Property is published - allowing access`);
     return PropertyResponse.fromDomain(property, userId);
   }
 
-  // Check if user is the owner
+  // If user is the owner, they can view their own property in any status (except disabled)
   const isOwnedByUser = userId ? property.isOwnedBy(userId) : false;
+  console.log(`Is owned by user ${userId}? ${isOwnedByUser}`);
   
-  // If property is owned by user, they can view it regardless of status (except disabled)
   if (isOwnedByUser && property.status !== PropertyStatus.DISABLED) {
+    console.log(`User is owner - allowing access`);
     return PropertyResponse.fromDomain(property, userId);
   }
 
   // Admin can view any property
   const canReadAll = userPermissions.includes(Permission.PROPERTY_READ_ALL);
+  console.log(`User has PROPERTY_READ_ALL permission? ${canReadAll}`);
+  
   if (canReadAll) {
+    console.log(`User is admin - allowing access`);
     return PropertyResponse.fromDomain(property, userId);
   }
 
-  // Check for property.read.own permission
-  const canReadOwn = userPermissions.includes(Permission.PROPERTY_READ_OWN);
-  
-  // If property is disabled, only admin can view
+  // If property is disabled and user is not admin/owner
   if (property.status === PropertyStatus.DISABLED) {
+    console.log(`Property is disabled and user is not admin/owner - denying access`);
     throw new BadRequestException('Property is disabled');
   }
 
-  // If user has property.read.own permission and owns the property
+  // Check if user has property.read.own permission
+  const canReadOwn = userPermissions.includes(Permission.PROPERTY_READ_OWN);
+  console.log(`User has PROPERTY_READ_OWN permission? ${canReadOwn}`);
+  
   if (canReadOwn && isOwnedByUser) {
+    console.log(`User has PROPERTY_READ_OWN and owns property - allowing access`);
     return PropertyResponse.fromDomain(property, userId);
   }
 
+  console.log(`All permission checks failed - denying access`);
+  console.log(`Property status: ${property.status}`);
+  console.log(`Is owned by user: ${isOwnedByUser}`);
+  console.log(`User permissions: ${JSON.stringify(userPermissions)}`);
+  
   throw new BadRequestException('Insufficient permissions to view this property');
 }
 

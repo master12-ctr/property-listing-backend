@@ -12,13 +12,14 @@ export class AuthService {
     private jwtService: JwtService,
   ) {}
 
-async validateUser(email: string, password: string): Promise<any> {
+
+  async validateUser(email: string, password: string): Promise<any> {
   const user = await this.usersService.validateUser(email, password);
   
   if (user) {
     const permissions = await this.usersService.getUserPermissions(user._id.toString());
     
-    console.log(`Auth validateUser: User ${user.email} has permissions:`, permissions);
+    console.log(`Auth validateUser: User ${user.email} (${user._id}) has permissions:`, permissions);
     
     const safeUser = user.toJSON ? user.toJSON() : this.toSafeUser(user);
     return {
@@ -28,6 +29,7 @@ async validateUser(email: string, password: string): Promise<any> {
   }
   return null;
 }
+
 
 async login(user: any) {
   const permissions = await this.usersService.getUserPermissions(user._id);
