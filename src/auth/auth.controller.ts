@@ -79,4 +79,38 @@ export class AuthController {
   })) registerDto: RegisterDto) {
     return this.authService.register(registerDto);
   }
+
+
+
+  @Post('refresh')
+@HttpCode(HttpStatus.OK)
+@ApiOperation({ summary: 'Refresh access token' })
+@ApiBody({ 
+  schema: {
+    type: 'object',
+    properties: {
+      refreshToken: { type: 'string' }
+    }
+  }
+})
+@ApiResponse({ 
+  status: 200, 
+  description: 'Token refreshed successfully',
+  schema: {
+    example: {
+      access_token: 'eyJhbGciOiJIUzI1NiIs...',
+      user: {
+        id: '65b3f8a9e4b01234abcd5678',
+        name: 'John Doe',
+        email: 'john@example.com',
+        permissions: ['property.read.own'],
+        tenantId: '65b3f8a9e4b01234abcd5679'
+      }
+    }
+  }
+})
+@ApiResponse({ status: 401, description: 'Invalid refresh token' })
+async refresh(@Body() body: { refreshToken: string }) {
+  return this.authService.refreshToken(body.refreshToken);
+}
 }

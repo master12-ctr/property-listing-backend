@@ -13,15 +13,15 @@ export class PropertyRepository implements IPropertyRepository {
     private readonly propertyModel: Model<PropertyDocument>,
   ) {}
 
-  private buildTenantQuery(tenantId?: string, baseQuery: any = {}): any {
-    const query = { ...baseQuery, deletedAt: null };
-    
-    if (tenantId) {
-      query.tenant = new Types.ObjectId(tenantId);
-    }
-    
-    return query;
+private buildTenantQuery(tenantId?: string, baseQuery: any = {}): any {
+  const query = { ...baseQuery, deletedAt: null };
+  
+  if (tenantId) {
+    query.tenant = new Types.ObjectId(tenantId);
   }
+  
+  return query;
+}
 
   async create(property: Property, tenantId: string): Promise<Property> {
     const entity = this.toEntity(property);
@@ -164,8 +164,22 @@ export class PropertyRepository implements IPropertyRepository {
     return this.toDomain(updated);
   }
 
+
   async findById(id: string, tenantId?: string): Promise<Property | null> {
-    const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(id) });
+  try {
+    const query: any = { _id: new Types.ObjectId(id), deletedAt: null };
+    
+    // IMPORTANT: Only add tenant filter if tenantId is provided
+    // This allows property owners to find their properties even without tenant context
+    if (tenantId) {
+      query.tenant = new Types.ObjectId(tenantId);
+    } else {
+      // If no tenantId provided, we need to be more flexible
+      // This might be the issue - the property might have tenant, but we're not filtering by it
+      console.warn(`Finding property ${id} without tenant filter`);
+    }
+    
+    console.log(`Repository findById query:`, JSON.stringify(query));
 
     const entity = await this.propertyModel
       .findOne(query)
@@ -174,25 +188,36 @@ export class PropertyRepository implements IPropertyRepository {
       .populate('disabledBy', 'name email')
       .exec();
     
+    console.log(`Repository findById found:`, entity ? `Property found with id ${entity._id}` : 'Property not found');
+    
     return entity ? this.toDomain(entity) : null;
+  } catch (error) {
+    console.error(`Error in findById for property ${id}:`, error);
+    return null;
   }
+}
 
+
+
+  
   async findByOwner(ownerId: string, tenantId?: string, status?: PropertyStatus): Promise<Property[]> {
-    const query = this.buildTenantQuery(tenantId, { owner: new Types.ObjectId(ownerId) });
-    
-    if (status) {
-      query.status = status;
-    }
-
-    const entities = await this.propertyModel
-      .find(query)
-      .sort({ createdAt: -1 })
-      .populate('owner', 'name email')
-      .populate('tenant', 'name slug')
-      .exec();
-    
-    return entities.map(entity => this.toDomain(entity));
+  const query = this.buildTenantQuery(tenantId, { owner: new Types.ObjectId(ownerId) });
+  
+  // Only filter by status if explicitly provided
+  if (status) {
+    query.status = status;
   }
+
+  const entities = await this.propertyModel
+    .find(query)
+    .sort({ createdAt: -1 })
+    .populate('owner', 'name email')
+    .populate('tenant', 'name slug')
+    .exec();
+  
+  return entities.map(entity => this.toDomain(entity));
+}
+
 
 
   async findAllPaginated(query: QueryPropertyDto, tenantId?: string): Promise<{
@@ -277,20 +302,22 @@ export class PropertyRepository implements IPropertyRepository {
 }
 
 
-  async findFavorites(userId: string, tenantId?: string): Promise<Property[]> {
-    const query = this.buildTenantQuery(tenantId, {
-      favoritedBy: new Types.ObjectId(userId),
-      status: PropertyStatus.PUBLISHED,
-    });
 
-    const entities = await this.propertyModel
-      .find(query)
-      .populate('owner', 'name email')
-      .populate('tenant', 'name slug')
-      .exec();
-    
-    return entities.map(entity => this.toDomain(entity));
-  }
+async findFavorites(userId: string, tenantId?: string): Promise<Property[]> {
+  // Remove the status filter to get ALL favorited properties
+  const query = this.buildTenantQuery(tenantId, {
+    favoritedBy: new Types.ObjectId(userId),
+  });
+
+  const entities = await this.propertyModel
+    .find(query)
+    .populate('owner', 'name email')
+    .populate('tenant', 'name slug')
+    .exec();
+  
+  return entities.map(entity => this.toDomain(entity));
+}
+
 
   async isFavorited(propertyId: string, userId: string, tenantId?: string): Promise<boolean> {
     const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(propertyId) });
@@ -305,25 +332,32 @@ export class PropertyRepository implements IPropertyRepository {
     );
   }
 
+
   async addToFavorites(propertyId: string, userId: string, tenantId?: string): Promise<Property> {
-    const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(propertyId) });
+  const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(propertyId) });
 
-    const property = await this.propertyModel.findOne(query);
-    
-    if (!property) {
-      throw new NotFoundException(`Property with id ${propertyId} not found`);
-    }
-
-    const userObjectId = new Types.ObjectId(userId);
-    
-    if (!property.favoritedBy.some(id => id.equals(userObjectId))) {
-      property.favoritedBy.push(userObjectId);
-      property.favoritesCount += 1;
-      await property.save();
-    }
-
-    return this.toDomain(property);
+  const property = await this.propertyModel.findOne(query);
+  
+  if (!property) {
+    throw new NotFoundException(`Property with id ${propertyId} not found`);
   }
+
+  // Business rule: Users should only be able to favorite published properties
+  if (property.status !== PropertyStatus.PUBLISHED) {
+    throw new BadRequestException('Only published properties can be added to favorites');
+  }
+
+  const userObjectId = new Types.ObjectId(userId);
+  
+  if (!property.favoritedBy.some(id => id.equals(userObjectId))) {
+    property.favoritedBy.push(userObjectId);
+    property.favoritesCount += 1;
+    await property.save();
+  }
+
+  return this.toDomain(property);
+}
+
 
   async removeFromFavorites(propertyId: string, userId: string, tenantId?: string): Promise<Property> {
     const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(propertyId) });

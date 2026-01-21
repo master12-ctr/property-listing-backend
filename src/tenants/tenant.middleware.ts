@@ -11,54 +11,63 @@ export class TenantMiddleware implements NestMiddleware {
     @InjectModel(Tenant.name) private tenantModel: Model<TenantDocument>,
   ) {}
 
+ 
   async use(req: IRequestWithTenant, res: Response, next: NextFunction) {
-    // Try multiple tenant identification methods
-    const tenantIdentifier = 
-      req.headers['x-tenant-id']?.toString() || 
-      req.headers['tenant-id']?.toString() ||
-      req.query.tenant?.toString() ||
-      req.subdomains[0] || // Subdomain multi-tenancy
-      'main'; // Default tenant
+  console.log(`TenantMiddleware: Path: ${req.path}, Headers:`, req.headers);
+  
+  // Try multiple tenant identification methods
+  const tenantIdentifier = 
+    req.headers['x-tenant-id']?.toString() || 
+    req.headers['tenant-id']?.toString() ||
+    req.query.tenant?.toString() ||
+    req.subdomains[0] || // Subdomain multi-tenancy
+    'main'; // Default tenant
 
-    try {
-      let tenant: TenantDocument | null = null;
-      
-      if (Types.ObjectId.isValid(tenantIdentifier)) {
-        tenant = await this.tenantModel.findOne({
-          _id: new Types.ObjectId(tenantIdentifier),
-          isActive: true,
-          deletedAt: null,
-        });
-      } else {
-        tenant = await this.tenantModel.findOne({
-          slug: tenantIdentifier,
-          isActive: true,
-          deletedAt: null,
-        });
-      }
+  console.log(`TenantMiddleware: Using identifier: ${tenantIdentifier}`);
 
-      if (!tenant) {
-        // If tenant not found, use default tenant
-        tenant = await this.tenantModel.findOne({
-          slug: 'main',
-          isActive: true,
-          deletedAt: null,
-        });
-      }
-
-      if (tenant) {
-        req.tenant = tenant;
-        req.tenantId = tenant._id.toString();
-        
-        // Set tenant context for all downstream services
-        res.setHeader('X-Tenant-ID', tenant._id.toString());
-        res.setHeader('X-Tenant-Name', tenant.name);
-      }
-    } catch (error) {
-      console.error('Tenant middleware error:', error);
-      // Continue without tenant context
+  try {
+    let tenant: TenantDocument | null = null;
+    
+    if (Types.ObjectId.isValid(tenantIdentifier)) {
+      tenant = await this.tenantModel.findOne({
+        _id: new Types.ObjectId(tenantIdentifier),
+        isActive: true,
+        deletedAt: null,
+      });
+    } else {
+      tenant = await this.tenantModel.findOne({
+        slug: tenantIdentifier,
+        isActive: true,
+        deletedAt: null,
+      });
     }
 
-    next();
+    if (!tenant) {
+      console.warn(`TenantMiddleware: Tenant not found with identifier: ${tenantIdentifier}`);
+      tenant = await this.tenantModel.findOne({
+        slug: 'main',
+        isActive: true,
+        deletedAt: null,
+      });
+    }
+
+    if (tenant) {
+      req.tenant = tenant;
+      req.tenantId = tenant._id.toString();
+      
+      console.log(`TenantMiddleware: Set tenant ${tenant.name} (${tenant._id})`);
+      
+      // Set tenant context for all downstream services
+      res.setHeader('X-Tenant-ID', tenant._id.toString());
+      res.setHeader('X-Tenant-Name', tenant.name);
+    } else {
+      console.error(`TenantMiddleware: No tenant found, even default`);
+    }
+  } catch (error) {
+    console.error('Tenant middleware error:', error);
   }
+
+  next();
+}
+
 }

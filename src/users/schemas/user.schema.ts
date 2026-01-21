@@ -37,6 +37,9 @@ export class User extends Document {
   @Exclude()
   password: string;
 
+  @Prop()
+refreshToken?: string;
+
   @Prop({ type: [{ type: Types.ObjectId, ref: 'Role' }], default: [] })
   roles: Types.ObjectId[];
 
@@ -94,6 +97,7 @@ UserSchema.methods.toSafeObject = function() {
 UserSchema.methods.toJSON = function() {
   const obj = this.toObject();
   delete obj.password;
+   delete obj.refreshToken; // Exclude refresh token
   delete obj.__v;
   return obj;
 };

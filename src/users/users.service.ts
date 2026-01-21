@@ -103,36 +103,28 @@ export class UsersService {
     return user.save();
   }
 
+  
   async update(id: string, updateData: Partial<User>): Promise<UserDocument> {
-    // Don't allow password update through this method
-    if (updateData.password) {
-      delete updateData.password;
-    }
-
-    // Handle role updates
-    if (updateData.roles) {
-      // Validate all roles exist
-      const roles = await this.roleModel.find({ 
-        _id: { $in: updateData.roles },
-        deletedAt: null 
-      });
-      if (roles.length !== updateData.roles.length) {
-        throw new BadRequestException('One or more roles not found');
-      }
-    }
-
-    const updated = await this.userModel
-      .findByIdAndUpdate(id, updateData, { new: true })
-      .populate('roles', 'name permissions')
-      .select('-password -__v')
-      .exec();
-
-    if (!updated) {
-      throw new NotFoundException(`User with ID ${id} not found`);
-    }
-
-    return updated;
+  // Don't allow password update through this method
+  if (updateData.password) {
+    delete updateData.password;
   }
+
+  // Handle refreshToken separately if needed
+  const { refreshToken, ...restData } = updateData as any;
+  
+  const updated = await this.userModel
+    .findByIdAndUpdate(id, restData, { new: true })
+    .populate('roles', 'name permissions')
+    .select('-password -__v')
+    .exec();
+
+  if (!updated) {
+    throw new NotFoundException(`User with ID ${id} not found`);
+  }
+
+  return updated;
+}
 
   async addRole(userId: string, roleId: string): Promise<UserDocument> {
     const user = await this.userModel.findById(userId);
@@ -241,4 +233,13 @@ export class UsersService {
     const { password, __v, ...safeObj } = obj;
     return safeObj;
   }
+
+
+  async updateRefreshToken(id: string, refreshToken: string): Promise<void> {
+  await this.userModel.findByIdAndUpdate(id, { refreshToken }).exec();
+}
+
+
+
+
 }

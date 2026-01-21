@@ -48,16 +48,25 @@ export class PropertyController {
   @ApiResponse({ status: 400, description: 'Bad request - validation failed' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden - insufficient permissions' })
-  async create(
-    @Body() createPropertyDto: CreatePropertyDto,
-    @GetUser() user: any,
-    @Request() req: any,
-  ) {
-    if (!req.tenantId) {
-      throw new BadRequestException('Tenant ID is required');
-    }
-    return this.commands.create(createPropertyDto, user.userId, req.tenantId);
+async create(
+  @Body() createPropertyDto: CreatePropertyDto,
+  @GetUser() user: any,
+  @Request() req: any,
+) {
+  if (!req.tenantId) {
+    throw new BadRequestException('Tenant ID is required');
   }
+  
+  // Validate coordinates if provided
+  if (createPropertyDto.location.coordinates?.coordinates) {
+    const [lng, lat] = createPropertyDto.location.coordinates.coordinates;
+    if (lng < -180 || lng > 180 || lat < -90 || lat > 90) {
+      throw new BadRequestException('Invalid coordinates. Longitude must be between -180 and 180, Latitude between -90 and 90');
+    }
+  }
+  
+  return this.commands.create(createPropertyDto, user.userId, req.tenantId);
+}
 
   @Get()
   @ApiOperation({ summary: 'Get all properties with pagination and filtering' })
@@ -111,23 +120,31 @@ export class PropertyController {
     return this.queries.findFavorites(user.userId, req.tenantId);
   }
 
-  @Get(':id')
-  @ApiOperation({ summary: 'Get property by ID' })
-  @ApiResponse({ status: 200, description: 'Property found' })
-  @ApiResponse({ status: 404, description: 'Property not found' })
-  async findOne(
-    @Param('id') id: string,
-    @GetUser() user?: any,
-    @Request() req?: any,
-  ) {
-    const userId = user?.userId;
-    const permissions = user?.permissions || [];
-    const tenantId = req?.tenantId;
-    
-    await this.queries.incrementViews(id, tenantId);
-    
-    return this.queries.findById(id, tenantId, userId, permissions);
-  }
+@Get(':id')
+@ApiOperation({ summary: 'Get property by ID' })
+@ApiResponse({ status: 200, description: 'Property found' })
+@ApiResponse({ status: 404, description: 'Property not found' })
+async findOne(
+  @Param('id') id: string,
+  @GetUser() user?: any,
+  @Request() req?: any,
+) {
+  console.log(`GET /properties/${id} called`);
+  console.log(`User:`, user ? `ID: ${user.userId}, Permissions: ${JSON.stringify(user.permissions)}` : 'No user');
+  console.log(`Tenant ID from request:`, req?.tenantId);
+  console.log(`Request headers:`, req?.headers);
+  
+  const userId = user?.userId;
+  const permissions = user?.permissions || [];
+  const tenantId = req?.tenantId;
+  
+  await this.queries.incrementViews(id, tenantId);
+  
+  const result = await this.queries.findById(id, tenantId, userId, permissions);
+  console.log(`Property found:`, result ? `ID: ${result.id}, Status: ${result.status}, Owner: ${result.owner.id}` : 'Not found');
+  
+  return result;
+}
 
   @Get(':id/validate')
   @UseGuards(JwtAuthGuard)
