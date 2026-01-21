@@ -18,8 +18,7 @@ export class PropertyQueries {
   
 
   
-
-  async findAll(
+async findAll(
   query: QueryPropertyDto,
   tenantId?: string,
   userId?: string,
@@ -30,44 +29,21 @@ export class PropertyQueries {
   page: number;
   limit: number;
 }> {
-  // For non-admin users, we need to handle special cases
+  // For non-admin users, filter by status
   if (!userPermissions.includes(Permission.PROPERTY_READ_ALL)) {
     const canReadOwn = userPermissions.includes(Permission.PROPERTY_READ_OWN);
     
     if (!canReadOwn) {
       // Regular users can only see published properties
       query.status = PropertyStatus.PUBLISHED;
-    } else if (userId && query.status === PropertyStatus.DRAFT) {
-      // Property owners querying for draft properties - let them see their own drafts
-      // We'll handle this differently - need to filter after fetching
     }
   }
 
   const result = await this.propertyRepository.findAllPaginated(query, tenantId);
   
-  // Filter results for property owners
-  if (!userPermissions.includes(Permission.PROPERTY_READ_ALL)) {
-    const canReadOwn = userPermissions.includes(Permission.PROPERTY_READ_OWN);
-    
-    if (canReadOwn && userId) {
-      // Property owners can see:
-      // 1. All published properties
-      // 2. Their own draft properties
-      result.data = result.data.filter(property => 
-        property.status === PropertyStatus.PUBLISHED || 
-        (property.status === PropertyStatus.DRAFT && property.ownerId === userId)
-      );
-    } else if (!canReadOwn) {
-      // Regular users can only see published properties
-      result.data = result.data.filter(property => 
-        property.status === PropertyStatus.PUBLISHED
-      );
-    }
-  }
-  
   return {
     data: result.data.map(property => PropertyResponse.fromDomain(property, userId)),
-    total: result.data.length, // Update total to reflect filtered count
+    total: result.total,
     page: result.page,
     limit: result.limit,
   };
@@ -82,63 +58,45 @@ async findById(
   userId?: string,
   userPermissions: string[] = [],
 ): Promise<PropertyResponse> {
-  console.log(`findById called: propertyId=${propertyId}, tenantId=${tenantId}, userId=${userId}, permissions=${JSON.stringify(userPermissions)}`);
-  
   const property = await this.propertyRepository.findById(propertyId, tenantId);
   
   if (!property) {
-    console.log(`Property ${propertyId} not found`);
     throw new BadRequestException('Property not found');
   }
 
-  console.log(`Property found: id=${property.id}, status=${property.status}, ownerId=${property.ownerId}, tenantId=${property.tenantId}`);
-
   // If property is published, anyone can view it
   if (property.status === PropertyStatus.PUBLISHED) {
-    console.log(`Property is published - allowing access`);
     return PropertyResponse.fromDomain(property, userId);
   }
 
   // If user is the owner, they can view their own property in any status (except disabled)
   const isOwnedByUser = userId ? property.isOwnedBy(userId) : false;
-  console.log(`Is owned by user ${userId}? ${isOwnedByUser}`);
   
   if (isOwnedByUser && property.status !== PropertyStatus.DISABLED) {
-    console.log(`User is owner - allowing access`);
     return PropertyResponse.fromDomain(property, userId);
   }
 
   // Admin can view any property
   const canReadAll = userPermissions.includes(Permission.PROPERTY_READ_ALL);
-  console.log(`User has PROPERTY_READ_ALL permission? ${canReadAll}`);
-  
   if (canReadAll) {
-    console.log(`User is admin - allowing access`);
     return PropertyResponse.fromDomain(property, userId);
   }
 
   // If property is disabled and user is not admin/owner
   if (property.status === PropertyStatus.DISABLED) {
-    console.log(`Property is disabled and user is not admin/owner - denying access`);
     throw new BadRequestException('Property is disabled');
   }
 
   // Check if user has property.read.own permission
   const canReadOwn = userPermissions.includes(Permission.PROPERTY_READ_OWN);
-  console.log(`User has PROPERTY_READ_OWN permission? ${canReadOwn}`);
   
   if (canReadOwn && isOwnedByUser) {
-    console.log(`User has PROPERTY_READ_OWN and owns property - allowing access`);
     return PropertyResponse.fromDomain(property, userId);
   }
 
-  console.log(`All permission checks failed - denying access`);
-  console.log(`Property status: ${property.status}`);
-  console.log(`Is owned by user: ${isOwnedByUser}`);
-  console.log(`User permissions: ${JSON.stringify(userPermissions)}`);
-  
   throw new BadRequestException('Insufficient permissions to view this property');
 }
+
 
 
 

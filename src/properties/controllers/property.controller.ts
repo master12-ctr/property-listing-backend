@@ -124,19 +124,15 @@ async findAll(
   }
 
 @Get(':id')
-@UseGuards(JwtAuthGuard) // Add JwtAuthGuard
+@UseGuards(JwtAuthGuard)
 @ApiOperation({ summary: 'Get property by ID' })
 @ApiResponse({ status: 200, description: 'Property found' })
 @ApiResponse({ status: 404, description: 'Property not found' })
 async findOne(
   @Param('id') id: string,
-  @GetUser() user: any, // Now user will be extracted by JwtAuthGuard
+  @GetUser() user: any,
   @Request() req: any,
 ) {
-  console.log(`GET /properties/${id} called`);
-  console.log(`User:`, user ? `ID: ${user.userId}, Permissions: ${JSON.stringify(user.permissions)}` : 'No user (user is null)');
-  console.log(`User object from guard:`, user);
-  
   const userId = user?.userId;
   const permissions = user?.permissions || [];
   const tenantId = req?.tenantId;

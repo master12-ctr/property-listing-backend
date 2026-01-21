@@ -13,13 +13,11 @@ export class AuthService {
   ) {}
 
 
-  async validateUser(email: string, password: string): Promise<any> {
+async validateUser(email: string, password: string): Promise<any> {
   const user = await this.usersService.validateUser(email, password);
   
   if (user) {
     const permissions = await this.usersService.getUserPermissions(user._id.toString());
-    
-    console.log(`Auth validateUser: User ${user.email} (${user._id}) has permissions:`, permissions);
     
     const safeUser = user.toJSON ? user.toJSON() : this.toSafeUser(user);
     return {
@@ -30,11 +28,8 @@ export class AuthService {
   return null;
 }
 
-
 async login(user: any) {
   const permissions = await this.usersService.getUserPermissions(user._id);
-  
-  console.log(`Auth login: User ${user.email} permissions:`, permissions);
   
   const payload = { 
     email: user.email, 
@@ -58,11 +53,12 @@ async login(user: any) {
       id: user._id,
       name: user.name,
       email: user.email,
-      permissions, // Make sure permissions are included
+      permissions,
       tenantId: user.tenant?.toString() || user.tenantId,
     },
   };
 }
+
 
   
 

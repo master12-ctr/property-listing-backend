@@ -49,79 +49,101 @@ export class PropertyCommands {
     return PropertyResponse.fromDomain(created);
   }
 
-  async update(
-    propertyId: string, 
-    command: UpdatePropertyDto, 
-    userId: string,
-    tenantId: string,
-    userPermissions: string[],
-  ): Promise<PropertyResponse> {
-    const property = await this.propertyRepository.findById(propertyId, tenantId);
-    
-    if (!property) {
-      throw new BadRequestException('Property not found');
-    }
+async update(
+  propertyId: string, 
+  command: UpdatePropertyDto, 
+  userId: string,
+  tenantId: string,
+  userPermissions: string[],
+): Promise<PropertyResponse> {
+  const property = await this.propertyRepository.findById(propertyId, tenantId);
+  
+  if (!property) {
+    throw new BadRequestException('Property not found');
+  }
 
-    // Business rule: Published properties cannot be edited (for anyone including admins)
-    if (property.status === PropertyStatus.PUBLISHED) {
-      throw new BadRequestException('Published properties cannot be edited');
-    }
+  // Business rule: Published properties cannot be edited (for anyone including admins)
+  if (property.status === PropertyStatus.PUBLISHED) {
+    throw new BadRequestException('Published properties cannot be edited');
+  }
 
-    // Permission check
-    const canUpdateAll = userPermissions.includes(Permission.PROPERTY_UPDATE_ALL);
-    const canUpdateOwn = userPermissions.includes(Permission.PROPERTY_UPDATE_OWN);
-    
-    if (!canUpdateAll && (!canUpdateOwn || !property.isOwnedBy(userId))) {
-      throw new BadRequestException('Insufficient permissions to update property');
+  // Business rule: Disabled properties can only be edited by admins after enabling
+  if (property.status === PropertyStatus.DISABLED) {
+    if (!userPermissions.includes(Permission.PROPERTY_UPDATE_ALL)) {
+      throw new BadRequestException('Disabled properties can only be enabled by admins first');
     }
+  }
 
-    // Update allowed fields
-    if (command.title !== undefined) property.title = command.title;
-    if (command.description !== undefined) property.description = command.description;
+  // Permission check
+  const canUpdateAll = userPermissions.includes(Permission.PROPERTY_UPDATE_ALL);
+  const canUpdateOwn = userPermissions.includes(Permission.PROPERTY_UPDATE_OWN);
+  
+  if (!canUpdateAll && (!canUpdateOwn || !property.isOwnedBy(userId))) {
+    throw new BadRequestException('Insufficient permissions to update property');
+  }
+
+  // Update allowed fields
+  if (command.title !== undefined) property.title = command.title;
+  if (command.description !== undefined) property.description = command.description;
+  
+  if (command.location !== undefined) {
+    property.location = {
+      address: command.location.address || property.location.address,
+      city: command.location.city || property.location.city,
+      country: command.location.country || property.location.country,
+      state: command.location.state ?? property.location.state,
+    };
     
-    if (command.location !== undefined) {
-      property.location = {
-        address: command.location.address || property.location.address,
-        city: command.location.city || property.location.city,
-        country: command.location.country || property.location.country,
-        state: command.location.state ?? property.location.state,
+    if (command.location.coordinates) {
+      property.location.coordinates = {
+        type: command.location.coordinates.type || 'Point',
+        coordinates: command.location.coordinates.coordinates || [0, 0],
       };
-      
-      if (command.location.coordinates) {
-        property.location.coordinates = {
-          type: command.location.coordinates.type || 'Point',
-          coordinates: command.location.coordinates.coordinates || [0, 0],
-        };
-      } else if (command.location.coordinates === null) {
-        delete property.location.coordinates;
-      }
+    } else if (command.location.coordinates === null) {
+      delete property.location.coordinates;
     }
-    
-    if (command.price !== undefined) property.price = command.price;
-    if (command.images !== undefined) property.images = command.images;
-    if (command.type !== undefined) property.type = command.type;
-    if (command.metadata !== undefined) property.metadata = command.metadata;
+  }
+  
+  if (command.price !== undefined) property.price = command.price;
+  if (command.images !== undefined) property.images = command.images;
+  if (command.type !== undefined) property.type = command.type;
+  if (command.metadata !== undefined) property.metadata = command.metadata;
 
-    const updated = await this.propertyRepository.update(propertyId, property, tenantId);
-    
-    this.logger.log('PropertyCommands', `Property ${propertyId} updated by user ${userId}`);
-    return PropertyResponse.fromDomain(updated);
+  const updated = await this.propertyRepository.update(propertyId, property, tenantId);
+  
+  this.logger.log('PropertyCommands', `Property ${propertyId} updated by user ${userId}`);
+  return PropertyResponse.fromDomain(updated);
+}
+
+async publish(propertyId: string, userId: string, tenantId: string): Promise<PropertyResponse> {
+  const property = await this.propertyRepository.findById(propertyId, tenantId);
+  
+  if (!property) {
+    throw new BadRequestException('Property not found');
   }
 
-  async publish(propertyId: string, userId: string, tenantId: string): Promise<PropertyResponse> {
-    const property = await this.propertyRepository.findById(propertyId, tenantId);
-    
-    if (!property) {
-      throw new BadRequestException('Property not found');
-    }
-
-    if (!property.isOwnedBy(userId)) {
-      throw new BadRequestException('Only property owners can publish properties');
-    }
-
-    const published = await this.propertyRepository.publish(propertyId, tenantId);
-    return PropertyResponse.fromDomain(published);
+  // Business rule: Only property owners can publish their own properties
+  if (!property.isOwnedBy(userId)) {
+    throw new BadRequestException('Only property owners can publish properties');
   }
+
+  // Business rule: Only draft properties can be published
+  if (property.status !== PropertyStatus.DRAFT) {
+    throw new BadRequestException(`Cannot publish property with status: ${property.status}`);
+  }
+
+  // Business rule: Validate property before publishing
+  const validation = property.validateForPublishing();
+  if (!validation.isValid) {
+    throw new BadRequestException(`Cannot publish property: ${validation.errors.join(', ')}`);
+  }
+
+  const published = await this.propertyRepository.publish(propertyId, tenantId);
+  
+  this.logger.log('PropertyCommands', `Property ${propertyId} published by user ${userId}`);
+  return PropertyResponse.fromDomain(published);
+}
+
 
   async archive(propertyId: string, userId: string, tenantId: string): Promise<PropertyResponse> {
     const property = await this.propertyRepository.findById(propertyId, tenantId);
@@ -224,12 +246,25 @@ export class PropertyCommands {
   }
 
 
+
   async addToFavorites(propertyId: string, userId: string, tenantId: string): Promise<PropertyResponse> {
   this.logger.log('PropertyCommands', `Adding property ${propertyId} to favorites for user ${userId}`);
   
-  const property = await this.propertyRepository.addToFavorites(propertyId, userId, tenantId);
-  return PropertyResponse.fromDomain(property);
+  const property = await this.propertyRepository.findById(propertyId, tenantId);
+  
+  if (!property) {
+    throw new BadRequestException('Property not found');
+  }
+  
+  // Business rule: Only published properties can be favorited
+  if (property.status !== PropertyStatus.PUBLISHED) {
+    throw new BadRequestException('Only published properties can be added to favorites');
+  }
+  
+  const updatedProperty = await this.propertyRepository.addToFavorites(propertyId, userId, tenantId);
+  return PropertyResponse.fromDomain(updatedProperty);
 }
+
 
 async removeFromFavorites(propertyId: string, userId: string, tenantId: string): Promise<PropertyResponse> {
   this.logger.log('PropertyCommands', `Removing property ${propertyId} from favorites for user ${userId}`);

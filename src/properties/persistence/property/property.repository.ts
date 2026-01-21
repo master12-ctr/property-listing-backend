@@ -165,10 +165,9 @@ private buildTenantQuery(tenantId?: string, baseQuery: any = {}): any {
   }
 
 
+
   async findById(id: string, tenantId?: string): Promise<Property | null> {
   const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(id) });
-  
-  console.log(`Repository findById query:`, JSON.stringify(query));
 
   const entity = await this.propertyModel
     .findOne(query)
@@ -176,10 +175,6 @@ private buildTenantQuery(tenantId?: string, baseQuery: any = {}): any {
     .populate('tenant', 'name slug')
     .populate('disabledBy', 'name email')
     .exec();
-  
-  if (entity) {
-    console.log(`Found property: ${entity._id}, owner: ${entity.owner._id}, tenant: ${entity.tenant._id}`);
-  }
   
   return entity ? this.toDomain(entity) : null;
 }
@@ -207,13 +202,22 @@ private buildTenantQuery(tenantId?: string, baseQuery: any = {}): any {
 
 
 
-  async findAllPaginated(query: QueryPropertyDto, tenantId?: string): Promise<{
+  async findAllPaginated(query: QueryPropertyDto, tenantId?: string,userId?: string): Promise<{
   data: Property[];
   total: number;
   page: number;
   limit: number;
 }> {
   const filter = this.buildTenantQuery(tenantId);
+
+    if (query.status === PropertyStatus.DRAFT && userId) {
+    // For draft properties, show either:
+    // 1. All draft properties if user is admin (handled by permission check upstream)
+    // 2. Only user's own draft properties if they have property.read.own
+    filter.owner = new Types.ObjectId(userId);
+  }
+
+
   
   if (query.status) {
     filter.status = query.status;
@@ -290,10 +294,10 @@ private buildTenantQuery(tenantId?: string, baseQuery: any = {}): any {
 
 
 
-async findFavorites(userId: string, tenantId?: string): Promise<Property[]> {
-  // Remove the status filter to get ALL favorited properties
+async findDraftsByOwner(ownerId: string, tenantId?: string): Promise<Property[]> {
   const query = this.buildTenantQuery(tenantId, {
-    favoritedBy: new Types.ObjectId(userId),
+    status: PropertyStatus.DRAFT,
+    owner: new Types.ObjectId(ownerId),
   });
 
   const entities = await this.propertyModel
@@ -305,6 +309,22 @@ async findFavorites(userId: string, tenantId?: string): Promise<Property[]> {
   return entities.map(entity => this.toDomain(entity));
 }
 
+
+async findFavorites(userId: string, tenantId?: string): Promise<Property[]> {
+  // Users should only be able to favorite published properties
+  const query = this.buildTenantQuery(tenantId, {
+    favoritedBy: new Types.ObjectId(userId),
+    status: PropertyStatus.PUBLISHED, // Only published properties can be favorited
+  });
+
+  const entities = await this.propertyModel
+    .find(query)
+    .populate('owner', 'name email')
+    .populate('tenant', 'name slug')
+    .exec();
+  
+  return entities.map(entity => this.toDomain(entity));
+}
 
   async isFavorited(propertyId: string, userId: string, tenantId?: string): Promise<boolean> {
     const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(propertyId) });
@@ -320,6 +340,7 @@ async findFavorites(userId: string, tenantId?: string): Promise<Property[]> {
   }
 
 
+
   async addToFavorites(propertyId: string, userId: string, tenantId?: string): Promise<Property> {
   const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(propertyId) });
 
@@ -329,7 +350,7 @@ async findFavorites(userId: string, tenantId?: string): Promise<Property[]> {
     throw new NotFoundException(`Property with id ${propertyId} not found`);
   }
 
-  // Business rule: Users should only be able to favorite published properties
+  // Business rule: Only published properties can be favorited
   if (property.status !== PropertyStatus.PUBLISHED) {
     throw new BadRequestException('Only published properties can be added to favorites');
   }
@@ -344,6 +365,7 @@ async findFavorites(userId: string, tenantId?: string): Promise<Property[]> {
 
   return this.toDomain(property);
 }
+
 
 
   async removeFromFavorites(propertyId: string, userId: string, tenantId?: string): Promise<Property> {
