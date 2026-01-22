@@ -24,13 +24,14 @@ export class PermissionsGuard implements CanActivate {
       throw new ForbiddenException('Authentication required');
     }
     
-    const hasAllPermissions = requiredPermissions.every(permission =>
+    // Check if user has ANY of the required permissions (OR logic)
+    const hasPermission = requiredPermissions.some(permission =>
       user.permissions?.includes(permission),
     );
 
-    if (!hasAllPermissions) {
+    if (!hasPermission) {
       throw new ForbiddenException(
-        `Insufficient permissions. Required: ${requiredPermissions.join(', ')}`,
+        `Insufficient permissions. Required one of: ${requiredPermissions.join(', ')}`,
       );
     }
 

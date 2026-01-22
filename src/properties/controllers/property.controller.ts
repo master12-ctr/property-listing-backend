@@ -42,6 +42,8 @@ export class PropertyController {
      private readonly propertyImagesService: PropertyImagesService,
   ) {}
 
+
+  
   @Post()
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermissions(Permission.PROPERTY_CREATE)

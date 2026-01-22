@@ -104,44 +104,61 @@ export class PropertyResponse {
     return response;
   }
 
+ 
   static fromDomain(property: Property, userId?: string): PropertyResponse {
-    const response = new PropertyResponse();
-    response.id = property.id;
-    response.title = property.title;
-    response.description = property.description;
-    response.location = property.location;
-    response.price = property.price;
-    response.images = property.images;
-    response.status = property.status;
-    response.type = property.type;
+  const response = new PropertyResponse();
+  response.id = property.id;
+  response.title = property.title;
+  response.description = property.description;
+  response.location = property.location;
+  response.price = property.price;
+  response.images = property.images;
+  response.status = property.status;
+  response.type = property.type;
+  
+  // Use populated owner data if available
+  if ((property as any)._owner) {
+    response.owner = {
+      id: (property as any)._owner.id,
+      name: (property as any)._owner.name,
+      email: (property as any)._owner.email,
+    };
+  } else {
     response.owner = {
       id: property.ownerId,
       name: '',
       email: '',
     };
-    response.views = property.views;
-    response.favoritesCount = property.favoritesCount;
-    response.metadata = property.metadata;
-    response.publishedAt = property.publishedAt;
-    response.createdAt = property.createdAt;
-    response.updatedAt = property.updatedAt;
-    
-    // Add favorite status if userId is provided
-    if (userId && (property as any).favoritedBy) {
-      response.isFavorited = (property as any).favoritedBy.some((id: any) => 
-        id.toString() === userId
-      );
-    }
-    
-    // Add tenant information if available
-    if ((property as any).tenantId) {
-      response.tenant = {
-        id: (property as any).tenantId,
-        name: '',
-        slug: '',
-      };
-    }
-    
-    return response;
   }
+  
+  // Use populated tenant data if available
+  if ((property as any)._tenant) {
+    response.tenant = {
+      id: (property as any)._tenant.id,
+      name: (property as any)._tenant.name,
+      slug: (property as any)._tenant.slug,
+    };
+  } else if (property.tenantId) {
+    response.tenant = {
+      id: property.tenantId,
+      name: '',
+      slug: '',
+    };
+  }
+  
+  response.views = property.views;
+  response.favoritesCount = property.favoritesCount;
+  response.metadata = property.metadata;
+  response.publishedAt = property.publishedAt;
+  response.createdAt = property.createdAt;
+  response.updatedAt = property.updatedAt;
+  
+  // Add favorite status if userId is provided
+  if (userId && property.favoritedBy) {
+    response.isFavorited = property.favoritedBy.includes(userId);
+  }
+  
+  return response;
+}
+
 }

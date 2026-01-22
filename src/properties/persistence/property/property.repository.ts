@@ -63,61 +63,61 @@ export class PropertyRepository implements IPropertyRepository {
     }
   }
 
+
   async publish(id: string, tenantId?: string): Promise<Property> {
-    const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(id) });
+  const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(id) });
 
-    const session = await this.propertyModel.db.startSession();
-    session.startTransaction();
-
-    try {
-      const property = await this.propertyModel
-        .findOne(query)
-        .session(session);
-
-      if (!property) {
-        throw new NotFoundException(`Property with id ${id} not found`);
-      }
-
-      // Convert to domain for validation
-      const domainProperty = this.toDomain(property);
-      
-      // Validate and publish
-      domainProperty.publish();
-      
-      // Update entity
-      property.status = domainProperty.status;
-      property.publishedAt = domainProperty.publishedAt;
-      
-      await property.save({ session });
-      await session.commitTransaction();
-
-      return domainProperty;
-    } catch (error) {
-      await session.abortTransaction();
-      throw error;
-    } finally {
-      session.endSession();
-    }
-  }
-
-  async archive(id: string, tenantId?: string): Promise<Property> {
-    const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(id) });
-
-    const updated = await this.propertyModel
-      .findOneAndUpdate(
-        query,
-        { status: PropertyStatus.ARCHIVED },
-        { new: true },
-      )
+  try {
+    const property = await this.propertyModel
+      .findOne(query)
       .populate('owner', 'name email')
+      .populate('tenant', 'name slug')
       .exec();
-    
-    if (!updated) {
+
+    if (!property) {
       throw new NotFoundException(`Property with id ${id} not found`);
     }
+
+    // Convert to domain for validation
+    const domainProperty = this.toDomain(property);
     
-    return this.toDomain(updated);
+    // Validate and publish
+    domainProperty.publish();
+    
+    // Update entity
+    property.status = domainProperty.status;
+    property.publishedAt = domainProperty.publishedAt;
+    
+    await property.save();
+
+    return domainProperty;
+  } catch (error) {
+    console.error('Error publishing property:', error);
+    throw new BadRequestException(`Failed to publish property: ${error.message}`);
   }
+}
+
+
+async archive(id: string, tenantId?: string): Promise<Property> {
+  const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(id) });
+
+  const updated = await this.propertyModel
+    .findOneAndUpdate(
+      query,
+      { status: PropertyStatus.ARCHIVED },
+      { new: true },
+    )
+    .populate('owner', 'name email')
+    .populate('tenant', 'name slug description') // Add tenant population
+    .populate('disabledBy', 'name email')
+    .exec();
+  
+  if (!updated) {
+    throw new NotFoundException(`Property with id ${id} not found`);
+  }
+  
+  return this.toDomain(updated);
+}
 
   async disable(id: string, disabledBy: string, tenantId?: string): Promise<Property> {
     const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(id) });
@@ -168,34 +168,34 @@ export class PropertyRepository implements IPropertyRepository {
 
 
 
- async findById(id: string, tenantId?: string, userId?: string): Promise<Property | null> {
-    const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(id) });
+async findById(id: string, tenantId?: string, userId?: string): Promise<Property | null> {
+  const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(id) });
 
-    const entity = await this.propertyModel
-      .findOne(query)
-      .populate('owner', 'name email')
-      .populate('tenant', 'name slug')
-      .populate('disabledBy', 'name email')
-      .exec();
-    
-    if (!entity) {
-      return null;
-    }
+  const entity = await this.propertyModel
+    .findOne(query)
+    .populate('owner', 'name email') // Ensure owner is populated
+    .populate({
+      path: 'tenant',
+      select: 'name slug description' // Ensure tenant is populated with correct fields
+    })
+    .populate('disabledBy', 'name email')
+    .exec();
+  
+  if (!entity) {
+    return null;
+  }
 
-    // Convert entity to domain
-    const domainProperty = this.toDomain(entity);
-    
-    // Check if user can access this property
-    // If property is published, anyone can see it
-    if (domainProperty.status === PropertyStatus.PUBLISHED) {
-      return domainProperty;
-    }
-
-    // If property is draft, only owner or admin can see it
-    // In a real app, we would check permissions here
-    // For now, we'll return it and let the service layer handle permissions
+  // Convert entity to domain
+  const domainProperty = this.toDomain(entity);
+  
+  // Check if user can access this property
+  // If property is published, anyone can see it
+  if (domainProperty.status === PropertyStatus.PUBLISHED) {
     return domainProperty;
   }
+
+  return domainProperty;
+}
 
 
 
@@ -328,6 +328,7 @@ async findDraftsByOwner(ownerId: string, tenantId?: string): Promise<Property[]>
 }
 
 
+
 async findFavorites(userId: string, tenantId?: string): Promise<Property[]> {
   // Users should only be able to favorite published properties
   const query = this.buildTenantQuery(tenantId, {
@@ -338,11 +339,12 @@ async findFavorites(userId: string, tenantId?: string): Promise<Property[]> {
   const entities = await this.propertyModel
     .find(query)
     .populate('owner', 'name email')
-    .populate('tenant', 'name slug')
+    .populate('tenant', 'name slug description') // Ensure description is included
     .exec();
   
   return entities.map(entity => this.toDomain(entity));
 }
+
 
   async isFavorited(propertyId: string, userId: string, tenantId?: string): Promise<boolean> {
     const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(propertyId) });
@@ -356,6 +358,7 @@ async findFavorites(userId: string, tenantId?: string): Promise<Property[]> {
       id.equals(new Types.ObjectId(userId))
     );
   }
+
 
 
 
@@ -381,34 +384,41 @@ async findFavorites(userId: string, tenantId?: string): Promise<Property[]> {
     await property.save();
   }
 
+  // Populate owner and tenant before returning
+  await property.populate('owner', 'name email');
+  await property.populate('tenant', 'name slug description');
+  
   return this.toDomain(property);
 }
 
+async removeFromFavorites(propertyId: string, userId: string, tenantId?: string): Promise<Property> {
+  const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(propertyId) });
 
-
-  async removeFromFavorites(propertyId: string, userId: string, tenantId?: string): Promise<Property> {
-    const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(propertyId) });
-
-    const property = await this.propertyModel.findOne(query);
-    
-    if (!property) {
-      throw new NotFoundException(`Property with id ${propertyId} not found`);
-    }
-
-    const userObjectId = new Types.ObjectId(userId);
-    const initialLength = property.favoritedBy.length;
-
-    property.favoritedBy = property.favoritedBy.filter(
-      id => !id.equals(userObjectId),
-    );
-
-    if (property.favoritedBy.length < initialLength) {
-      property.favoritesCount = Math.max(0, property.favoritesCount - 1);
-      await property.save();
-    }
-
-    return this.toDomain(property);
+  const property = await this.propertyModel.findOne(query);
+  
+  if (!property) {
+    throw new NotFoundException(`Property with id ${propertyId} not found`);
   }
+
+  const userObjectId = new Types.ObjectId(userId);
+  const initialLength = property.favoritedBy.length;
+
+  property.favoritedBy = property.favoritedBy.filter(
+    id => !id.equals(userObjectId),
+  );
+
+  if (property.favoritedBy.length < initialLength) {
+    property.favoritesCount = Math.max(0, property.favoritesCount - 1);
+    await property.save();
+  }
+
+  // Populate owner and tenant before returning
+  await property.populate('owner', 'name email');
+  await property.populate('tenant', 'name slug description');
+  
+  return this.toDomain(property);
+}
+
 
 async incrementViews(id: string, userId?: string, tenantId?: string): Promise<void> {
     const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(id) });
@@ -568,59 +578,79 @@ async incrementViews(id: string, userId?: string, tenantId?: string): Promise<vo
   }
 
 
-   private toDomain(entity: PropertyEntity): Property {
-    const property = new Property();
-    property.id = entity._id.toString();
-    property.title = entity.title;
-    property.description = entity.description;
-    
-    property.location = {
-      address: entity.location.address || '',
-      city: entity.location.city || '',
-      country: entity.location.country || '',
-      state: entity.location.state,
+
+
+  private toDomain(entity: PropertyEntity): Property {
+  const property = new Property();
+  property.id = entity._id.toString();
+  property.title = entity.title;
+  property.description = entity.description;
+  
+  property.location = {
+    address: entity.location.address || '',
+    city: entity.location.city || '',
+    country: entity.location.country || '',
+    state: entity.location.state,
+  };
+  
+  if (entity.location.coordinates) {
+    property.location.coordinates = {
+      type: entity.location.coordinates.type || 'Point',
+      coordinates: entity.location.coordinates.coordinates || [0, 0],
     };
-    
-    if (entity.location.coordinates) {
-      property.location.coordinates = {
-        type: entity.location.coordinates.type || 'Point',
-        coordinates: entity.location.coordinates.coordinates || [0, 0],
-      };
-    }
-    
-    property.price = entity.price || 0;
-    property.images = entity.images || [];
-    property.status = entity.status || PropertyStatus.DRAFT;
-    property.type = entity.type;
-    
-    // Extract owner ID
-    if (entity.owner && typeof entity.owner === 'object' && (entity.owner as any)._id) {
-      property.ownerId = (entity.owner as any)._id.toString();
-    } else {
-      property.ownerId = entity.owner.toString();
-    }
-    
-    // Extract tenant ID
-    if (entity.tenant && typeof entity.tenant === 'object' && (entity.tenant as any)._id) {
-      property.tenantId = (entity.tenant as any)._id.toString();
-    } else if (entity.tenant) {
-      property.tenantId = entity.tenant.toString();
-    }
-    
-    property.views = entity.views || 0;
-    property.viewedBy = entity.viewedBy ? entity.viewedBy.map(id => id.toString()) : [];
-    property.favoritesCount = entity.favoritesCount || 0;
-    property.favoritedBy = entity.favoritedBy.map(id => id.toString());
-    property.metadata = entity.metadata;
-    property.publishedAt = entity.publishedAt;
-    property.deletedAt = entity.deletedAt;
-    property.disabledAt = entity.disabledAt;
-    property.disabledBy = entity.disabledBy?.toString();
-    property.createdAt = entity.createdAt;
-    property.updatedAt = entity.updatedAt;
-    
-    return property;
   }
+  
+  property.price = entity.price || 0;
+  property.images = entity.images || [];
+  property.status = entity.status || PropertyStatus.DRAFT;
+  property.type = entity.type;
+  
+  // Quick fix: cast to any
+  const entityAny = entity as any;
+  
+  if (entityAny.owner) {
+    if (typeof entityAny.owner === 'object' && '_id' in entityAny.owner) {
+      property.ownerId = entityAny.owner._id.toString();
+      (property as any)._owner = {
+        id: entityAny.owner._id.toString(),
+        name: entityAny.owner.name || '',
+        email: entityAny.owner.email || ''
+      };
+    } else {
+      property.ownerId = entityAny.owner.toString();
+    }
+  }
+  
+  if (entityAny.tenant) {
+    if (typeof entityAny.tenant === 'object' && '_id' in entityAny.tenant) {
+      property.tenantId = entityAny.tenant._id.toString();
+      (property as any)._tenant = {
+        id: entityAny.tenant._id.toString(),
+        name: entityAny.tenant.name || '',
+        slug: entityAny.tenant.slug || '',
+        description: entityAny.tenant.description || ''
+      };
+    } else {
+      property.tenantId = entityAny.tenant.toString();
+    }
+  }
+  
+  property.views = entity.views || 0;
+  property.viewedBy = entity.viewedBy ? entity.viewedBy.map(id => id.toString()) : [];
+  property.favoritesCount = entity.favoritesCount || 0;
+  property.favoritedBy = entity.favoritedBy.map(id => id.toString());
+  property.metadata = entity.metadata;
+  property.publishedAt = entity.publishedAt;
+  property.deletedAt = entity.deletedAt;
+  property.disabledAt = entity.disabledAt;
+  property.disabledBy = entity.disabledBy?.toString();
+  property.createdAt = entity.createdAt;
+  property.updatedAt = entity.updatedAt;
+  
+  return property;
+}
+
+
 
   private toEntity(property: Property): Partial<PropertyEntity> {
     const location: any = {

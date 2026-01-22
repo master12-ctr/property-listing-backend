@@ -11,15 +11,14 @@ import { CreateContactDto } from './dto/create-contact.dto';
 export class ContactController {
   constructor(private readonly contactService: ContactService) {}
 
-  @Post()
-  @UseGuards(JwtAuthGuard, PermissionsGuard)
-  @RequirePermissions(Permission.PROPERTY_READ_OWN)
-  async create(
-    @Body() createContactDto: CreateContactDto,
-    @GetUser() user: any,
-  ) {
-    return this.contactService.createContact(createContactDto, user.userId);
-  }
+@Post()
+@UseGuards(JwtAuthGuard) 
+async create(
+  @Body() createContactDto: CreateContactDto,
+  @GetUser() user: any,
+) {
+  return this.contactService.createContact(createContactDto, user.userId);
+}
 
   @Get()
   @UseGuards(JwtAuthGuard)

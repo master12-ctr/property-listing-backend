@@ -2,6 +2,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
+
 import helmet from 'helmet';
 
 import { AppModule } from './app.module';
@@ -112,7 +113,7 @@ async function bootstrap() {
   }
 
   const port = process.env.PORT || 3000;
-await app.listen(port, '0.0.0.0');
+  await app.listen(port);
 
   Logger.log(`🚀 Application is running on: http://localhost:${port}`, 'Bootstrap');
   if (process.env.NODE_ENV !== 'production') {

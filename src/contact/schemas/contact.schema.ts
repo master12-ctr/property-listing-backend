@@ -1,4 +1,3 @@
-
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
@@ -6,7 +5,7 @@ export type ContactDocument = Contact & Document;
 
 @Schema({ timestamps: true })
 export class Contact {
-  @Prop({ type: Types.ObjectId, ref: 'Property', required: true })
+  @Prop({ type: Types.ObjectId, ref: 'PropertyEntity', required: true }) // Changed from 'Property' to 'PropertyEntity'
   property: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
