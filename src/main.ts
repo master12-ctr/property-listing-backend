@@ -10,15 +10,17 @@ import { LoggerService } from './shared/infrastructure/logger/logger.service';
 import { AllExceptionFilter } from './shared/infrastructure/filter/exception.filter';
 import { HttpExceptionFilter } from './shared/infrastructure/filter/http-exception.filter';
 
+
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, {
-    logger: new LoggerService(),
-    cors: {
-      origin: process.env.FRONTEND_URL?.split(',') || ['http://localhost:3001','https://property-listing-frontend.vercel.app/','https://property-listing-frontend.vercel.app'],
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant-ID'],
-    },
+  const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3001').split(',');
+const app = await NestFactory.create(AppModule, {
+  logger: new LoggerService(),
+  cors: {
+    origin: allowedOrigins,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant-ID'],
+  },
   });
 
   // Security middleware
@@ -29,7 +31,9 @@ async function bootstrap() {
         styleSrc: ["'self'", "'unsafe-inline'"],
         scriptSrc: ["'self'"],
         imgSrc: ["'self'", "data:", "https://res.cloudinary.com"],
-        connectSrc: ["'self'", process.env.FRONTEND_URL || 'http://localhost:3001'],
+        // connectSrc: ["'self'", process.env.FRONTEND_URL || 'http://localhost:3001'],
+        connectSrc: ["'self'", 'https://property-listing-frontend.vercel.app'],
+
       },
     },
     crossOriginEmbedderPolicy: false,
