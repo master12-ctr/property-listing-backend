@@ -39,6 +39,7 @@ export class Property {
   ownerId: string;
   tenantId?: string;
   views: number = 0;
+  viewedBy: string[] = []; // Track unique user views
   favoritesCount: number = 0;
   favoritedBy: string[] = [];
   metadata?: Record<string, any>;
@@ -52,6 +53,7 @@ export class Property {
   constructor(partial: Partial<Property> = {}) {
     Object.assign(this, partial);
     this.views = this.views || 0;
+    this.viewedBy = this.viewedBy || [];
     this.favoritesCount = this.favoritesCount || 0;
     this.favoritedBy = this.favoritedBy || [];
   }
@@ -140,6 +142,21 @@ export class Property {
     return this.status === PropertyStatus.DRAFT && 
            this.images && 
            this.images.length > 0;
+  }
+
+  // Add unique user view
+  addView(userId: string): boolean {
+    if (this.status !== PropertyStatus.PUBLISHED) {
+      return false; // Only count views for published properties
+    }
+    
+    if (this.viewedBy.includes(userId)) {
+      return false; // User already viewed
+    }
+    
+    this.viewedBy.push(userId);
+    this.views = this.viewedBy.length; // Views count = number of unique users
+    return true;
   }
 
   addFavorite(userId: string): void {

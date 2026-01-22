@@ -122,8 +122,8 @@ async findById(
     return await this.propertyRepository.isFavorited(propertyId, userId, tenantId);
   }
 
-  async incrementViews(id: string, tenantId?: string): Promise<void> {
-    await this.propertyRepository.incrementViews(id, tenantId);
+  async incrementViews(id: string, userId:string, tenantId?: string): Promise<void> {
+    await this.propertyRepository.incrementViews(id,userId, tenantId);
   }
 
   async getMetrics(userPermissions: string[]): Promise<any> {

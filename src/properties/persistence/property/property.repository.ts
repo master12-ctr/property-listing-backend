@@ -392,14 +392,28 @@ async findFavorites(userId: string, tenantId?: string): Promise<Property[]> {
     return this.toDomain(property);
   }
 
-  async incrementViews(id: string, tenantId?: string): Promise<void> {
+async incrementViews(id: string, userId?: string, tenantId?: string): Promise<void> {
     const query = this.buildTenantQuery(tenantId, { _id: new Types.ObjectId(id) });
 
-    await this.propertyModel.findOneAndUpdate(
-      query,
-      { $inc: { views: 1 } },
-      { new: true },
-    ).exec();
+    if (userId) {
+      // Only increment if user hasn't viewed before and property is published
+      await this.propertyModel.findOneAndUpdate(
+        {
+          ...query,
+          status: PropertyStatus.PUBLISHED,
+          viewedBy: { $ne: new Types.ObjectId(userId) }
+        },
+        {
+          $addToSet: { viewedBy: new Types.ObjectId(userId) },
+          $inc: { views: 1 }
+        },
+        { new: true }
+      ).exec();
+    } else {
+      // For unauthenticated users or no userId, don't increment
+      // This ensures we only count unique authenticated users
+      return;
+    }
   }
 
   async getTenantMetrics(tenantId: string): Promise<any> {
@@ -535,60 +549,60 @@ async findFavorites(userId: string, tenantId?: string): Promise<Property[]> {
     };
   }
 
-private toDomain(entity: PropertyEntity): Property {
-  const property = new Property();
-  property.id = entity._id.toString();
-  property.title = entity.title;
-  property.description = entity.description;
-  
-  property.location = {
-    address: entity.location.address || '',
-    city: entity.location.city || '',
-    country: entity.location.country || '',
-    state: entity.location.state,
-  };
-  
-  if (entity.location.coordinates) {
-    property.location.coordinates = {
-      type: entity.location.coordinates.type || 'Point',
-      coordinates: entity.location.coordinates.coordinates || [0, 0],
+
+   private toDomain(entity: PropertyEntity): Property {
+    const property = new Property();
+    property.id = entity._id.toString();
+    property.title = entity.title;
+    property.description = entity.description;
+    
+    property.location = {
+      address: entity.location.address || '',
+      city: entity.location.city || '',
+      country: entity.location.country || '',
+      state: entity.location.state,
     };
+    
+    if (entity.location.coordinates) {
+      property.location.coordinates = {
+        type: entity.location.coordinates.type || 'Point',
+        coordinates: entity.location.coordinates.coordinates || [0, 0],
+      };
+    }
+    
+    property.price = entity.price || 0;
+    property.images = entity.images || [];
+    property.status = entity.status || PropertyStatus.DRAFT;
+    property.type = entity.type;
+    
+    // Extract owner ID
+    if (entity.owner && typeof entity.owner === 'object' && (entity.owner as any)._id) {
+      property.ownerId = (entity.owner as any)._id.toString();
+    } else {
+      property.ownerId = entity.owner.toString();
+    }
+    
+    // Extract tenant ID
+    if (entity.tenant && typeof entity.tenant === 'object' && (entity.tenant as any)._id) {
+      property.tenantId = (entity.tenant as any)._id.toString();
+    } else if (entity.tenant) {
+      property.tenantId = entity.tenant.toString();
+    }
+    
+    property.views = entity.views || 0;
+    property.viewedBy = entity.viewedBy ? entity.viewedBy.map(id => id.toString()) : [];
+    property.favoritesCount = entity.favoritesCount || 0;
+    property.favoritedBy = entity.favoritedBy.map(id => id.toString());
+    property.metadata = entity.metadata;
+    property.publishedAt = entity.publishedAt;
+    property.deletedAt = entity.deletedAt;
+    property.disabledAt = entity.disabledAt;
+    property.disabledBy = entity.disabledBy?.toString();
+    property.createdAt = entity.createdAt;
+    property.updatedAt = entity.updatedAt;
+    
+    return property;
   }
-  
-  property.price = entity.price || 0;
-  property.images = entity.images || [];
-  property.status = entity.status || PropertyStatus.DRAFT;
-  property.type = entity.type;
-  
-  // FIX: Extract owner ID as string, not object
-  if (entity.owner && typeof entity.owner === 'object' && (entity.owner as any)._id) {
-    // Owner is populated, extract the ID
-    property.ownerId = (entity.owner as any)._id.toString();
-  } else {
-    // Owner is just ObjectId
-    property.ownerId = entity.owner.toString();
-  }
-  
-  // FIX: Extract tenant ID as string
-  if (entity.tenant && typeof entity.tenant === 'object' && (entity.tenant as any)._id) {
-    property.tenantId = (entity.tenant as any)._id.toString();
-  } else if (entity.tenant) {
-    property.tenantId = entity.tenant.toString();
-  }
-  
-  property.views = entity.views || 0;
-  property.favoritesCount = entity.favoritesCount || 0;
-  property.favoritedBy = entity.favoritedBy.map(id => id.toString());
-  property.metadata = entity.metadata;
-  property.publishedAt = entity.publishedAt;
-  property.deletedAt = entity.deletedAt;
-  property.disabledAt = entity.disabledAt;
-  property.disabledBy = entity.disabledBy?.toString();
-  property.createdAt = entity.createdAt;
-  property.updatedAt = entity.updatedAt;
-  
-  return property;
-}
 
   private toEntity(property: Property): Partial<PropertyEntity> {
     const location: any = {
@@ -615,6 +629,7 @@ private toDomain(entity: PropertyEntity): Property {
       type: property.type,
       owner: new Types.ObjectId(property.ownerId),
       views: property.views,
+      viewedBy: property.viewedBy ? property.viewedBy.map(id => new Types.ObjectId(id)) : [],
       favoritesCount: property.favoritesCount,
       favoritedBy: property.favoritedBy.map(id => new Types.ObjectId(id)),
       metadata: property.metadata,
@@ -633,4 +648,6 @@ private toDomain(entity: PropertyEntity): Property {
     
     return entity;
   }
+
+
 }

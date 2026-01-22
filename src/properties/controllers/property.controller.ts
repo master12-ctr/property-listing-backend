@@ -30,6 +30,7 @@ import { UpdatePropertyDto } from '../dto/update-property.dto';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { PropertyImagesService } from '../services/property-images.service';
 import { OptionalJwtAuthGuard } from 'src/auth/guards/optional-jwt-auth.guard';
+import { PropertyStatus } from '../domain/property/Property';
 
 @ApiTags('Properties')
 @ApiBearerAuth()
@@ -124,7 +125,7 @@ async findAll(
   }
 
 @Get(':id')
-@UseGuards(JwtAuthGuard)
+@UseGuards(OptionalJwtAuthGuard)
 @ApiOperation({ summary: 'Get property by ID' })
 @ApiResponse({ status: 200, description: 'Property found' })
 @ApiResponse({ status: 404, description: 'Property not found' })
@@ -137,9 +138,14 @@ async findOne(
   const permissions = user?.permissions || [];
   const tenantId = req?.tenantId;
   
-  await this.queries.incrementViews(id, tenantId);
+  // Increment views only if user is authenticated and property is published
+  const property = await this.queries.findById(id, tenantId, userId, permissions);
   
-  return this.queries.findById(id, tenantId, userId, permissions);
+  if (property && property.status === PropertyStatus.PUBLISHED && userId) {
+    await this.queries.incrementViews(id, userId, tenantId);
+  }
+  
+  return property;
 }
 
   @Get(':id/validate')

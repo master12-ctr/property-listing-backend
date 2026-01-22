@@ -1,4 +1,3 @@
-
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 import { PropertyStatus, PropertyType } from '../../domain/property/Property';
@@ -86,6 +85,9 @@ export class PropertyEntity extends Document {
   @Prop({ default: 0 })
   views: number;
 
+  @Prop({ type: [Types.ObjectId], ref: 'User', default: [] })
+  viewedBy: Types.ObjectId[]; // Track unique user views
+
   @Prop({ default: 0 })
   favoritesCount: number;
 
@@ -122,6 +124,7 @@ PropertySchema.index({ tenant: 1, owner: 1, status: 1 });
 PropertySchema.index({ tenant: 1, 'location.city': 1, status: 1 });
 PropertySchema.index({ tenant: 1, price: 1, status: 1 });
 PropertySchema.index({ 'location.coordinates': '2dsphere' });
+PropertySchema.index({ viewedBy: 1 });
 
 // Pre-find hooks for soft delete and tenant filtering
 PropertySchema.pre('find', function() {
