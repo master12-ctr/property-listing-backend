@@ -6,6 +6,7 @@ import { Role, RoleDocument } from '../roles/schemas/role.schema';
 import { Tenant, TenantDocument } from '../tenants/schemas/tenant.schema'; // Add this import
 import * as bcrypt from 'bcrypt';
 import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
 
 @Injectable()
 export class UsersService {
@@ -104,27 +105,7 @@ export class UsersService {
   }
 
 
-  async update(id: string, updateData: Partial<User>): Promise<UserDocument> {
-  // Don't allow password update through this method
-  if (updateData.password) {
-    delete updateData.password;
-  }
-
-  // Handle refreshToken separately if needed
-  const { refreshToken, ...restData } = updateData as any;
   
-  const updated = await this.userModel
-    .findByIdAndUpdate(id, restData, { new: true })
-    .populate('roles', 'name permissions')
-    .select('-password -__v')
-    .exec();
-
-  if (!updated) {
-    throw new NotFoundException(`User with ID ${id} not found`);
-  }
-
-  return updated;
-}
 
   async addRole(userId: string, roleId: string): Promise<UserDocument> {
     const user = await this.userModel.findById(userId);
@@ -235,10 +216,52 @@ export class UsersService {
   await this.userModel.findByIdAndUpdate(id, { refreshToken }).exec();
 }
 
-async updatePassword(id: string, newPassword: string): Promise<void> {
-  const hashedPassword = await bcrypt.hash(newPassword, 10);
-  await this.userModel.findByIdAndUpdate(id, { password: hashedPassword }).exec();
-}
 
+
+async update(id: string, updateData: UpdateUserDto): Promise<UserDocument> {
+    
+
+    // Handle role update if roleName is provided
+    if (updateData.roleName) {
+      const role = await this.roleModel.findOne({ name: updateData.roleName });
+      if (role) {
+        // Remove all existing roles
+        await this.userModel.findByIdAndUpdate(id, { $set: { roles: [] } });
+        // Add the new role
+        await this.userModel.findByIdAndUpdate(id, { $addToSet: { roles: role._id } });
+      }
+      delete updateData.roleName;
+    }
+
+    const updated = await this.userModel
+      .findByIdAndUpdate(id, updateData, { new: true })
+      .populate('roles', 'name permissions')
+      .select('-password -__v -refreshToken')
+      .exec();
+
+    if (!updated) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+
+    return updated;
+  }
+
+  async toggleActive(id: string): Promise<UserDocument> {
+    const user = await this.userModel.findById(id);
+    if (!user) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+
+    user.isActive = !user.isActive;
+    await user.save();
+
+    return this.findByIdOrThrow(id);
+  }
+
+  async updatePassword(id: string, newPassword: string): Promise<void> {
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await this.userModel.findByIdAndUpdate(id, { password: hashedPassword }).exec();
+  }
+  
 
 }
