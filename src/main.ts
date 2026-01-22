@@ -14,7 +14,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: new LoggerService(),
     cors: {
-      origin: process.env.FRONTEND_URL?.split(',') || ['http://localhost:3001'],
+      origin: process.env.FRONTEND_URL?.split(',') || ['http://localhost:3001','https://property-listing-frontend.vercel.app/','https://property-listing-frontend.vercel.app'],
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant-ID'],
