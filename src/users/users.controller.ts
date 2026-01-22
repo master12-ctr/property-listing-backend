@@ -5,6 +5,7 @@ import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { GetUser } from '../auth/decorators/get-user.decorator';
 import { Permission } from '../shared/constants/permissions';
 import { UsersService } from './users.service';
+import { CreateUserDto } from './dto/create-user.dto';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard)
@@ -61,4 +62,23 @@ export class UsersController {
   ) {
     return this.usersService.removeRole(userId, roleId);
   }
+
+  // Add password reset endpoint
+  @Post(':id/reset-password')
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions(Permission.USER_UPDATE_ALL)
+  async resetPassword(
+    @Param('id') id: string,
+    @Body() body: { newPassword: string },
+  ) {
+    await this.usersService.updatePassword(id, body.newPassword);
+    return { message: 'Password reset successfully' };
+  }
+
+  @Post()
+@UseGuards(PermissionsGuard)
+@RequirePermissions(Permission.USER_UPDATE_ALL)
+async create(@Body() createUserDto: CreateUserDto) {
+  return this.usersService.create(createUserDto);
+}
 }

@@ -103,7 +103,7 @@ export class UsersService {
     return user.save();
   }
 
-  
+
   async update(id: string, updateData: Partial<User>): Promise<UserDocument> {
   // Don't allow password update through this method
   if (updateData.password) {
@@ -207,10 +207,6 @@ export class UsersService {
     return deleted;
   }
 
-  async updatePassword(id: string, newPassword: string): Promise<void> {
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-    await this.userModel.findByIdAndUpdate(id, { password: hashedPassword }).exec();
-  }
 
   async validateUser(email: string, password: string): Promise<UserDocument | null> {
     const user = await this.findByEmail(email);
@@ -239,7 +235,10 @@ export class UsersService {
   await this.userModel.findByIdAndUpdate(id, { refreshToken }).exec();
 }
 
-
+async updatePassword(id: string, newPassword: string): Promise<void> {
+  const hashedPassword = await bcrypt.hash(newPassword, 10);
+  await this.userModel.findByIdAndUpdate(id, { password: hashedPassword }).exec();
+}
 
 
 }
