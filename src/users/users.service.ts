@@ -218,33 +218,35 @@ export class UsersService {
 
 
 
+
 async update(id: string, updateData: UpdateUserDto): Promise<UserDocument> {
-    
-
-    // Handle role update if roleName is provided
-    if (updateData.roleName) {
-      const role = await this.roleModel.findOne({ name: updateData.roleName });
-      if (role) {
-        // Remove all existing roles
-        await this.userModel.findByIdAndUpdate(id, { $set: { roles: [] } });
-        // Add the new role
-        await this.userModel.findByIdAndUpdate(id, { $addToSet: { roles: role._id } });
-      }
-      delete updateData.roleName;
+  // Handle role update if roleName is provided
+  if (updateData.roleName) {
+    const role = await this.roleModel.findOne({ name: updateData.roleName });
+    if (role) {
+      // Remove all existing roles
+      await this.userModel.findByIdAndUpdate(id, { $set: { roles: [] } });
+      // Add the new role
+      await this.userModel.findByIdAndUpdate(id, { $addToSet: { roles: role._id } });
     }
-
-    const updated = await this.userModel
-      .findByIdAndUpdate(id, updateData, { new: true })
-      .populate('roles', 'name permissions')
-      .select('-password -__v -refreshToken')
-      .exec();
-
-    if (!updated) {
-      throw new NotFoundException(`User with ID ${id} not found`);
-    }
-
-    return updated;
+    // Remove roleName from updateData since it's not a field in User schema
+    const { roleName, ...updateDataWithoutRole } = updateData;
+    updateData = updateDataWithoutRole as any;
   }
+
+  const updated = await this.userModel
+    .findByIdAndUpdate(id, updateData, { new: true })
+    .populate('roles', 'name permissions')
+    .select('-password -__v -refreshToken')
+    .exec();
+
+  if (!updated) {
+    throw new NotFoundException(`User with ID ${id} not found`);
+  }
+
+  return updated;
+}
+
 
   async toggleActive(id: string): Promise<UserDocument> {
     const user = await this.userModel.findById(id);
