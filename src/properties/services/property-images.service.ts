@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { ImagesService } from '../../images/images.service';
 import { PropertyRepository } from '../persistence/property/property.repository';
 import { Permission } from '../../shared/constants/permissions';
+import { PropertyStatus } from '../domain/property/Property';
 
 @Injectable()
 export class PropertyImagesService {
@@ -51,7 +52,8 @@ export class PropertyImagesService {
     return { urls, propertyId };
   }
 
-  async deletePropertyImages(
+ 
+    async deletePropertyImages(
     propertyId: string,
     imageUrls: string[],
     userId: string,
@@ -59,24 +61,34 @@ export class PropertyImagesService {
     userPermissions: string[] = [],
   ): Promise<void> {
     // Check property exists and user has permission
-    const property = await this.propertyRepository.findById(propertyId, tenantId);
+    const property = await this.propertyRepository.findById(propertyId, tenantId, userId);
     if (!property) {
       throw new NotFoundException('Property not found');
+    }
+
+    // Check if property can be edited (published properties cannot be edited)
+    if (property.status === PropertyStatus.PUBLISHED) {
+      throw new BadRequestException('Published properties cannot be edited');
     }
 
     // Permission check
     const canUpdateAll = userPermissions.includes(Permission.PROPERTY_UPDATE_ALL);
     const canUpdateOwn = userPermissions.includes(Permission.PROPERTY_UPDATE_OWN);
+    const isOwner = property.isOwnedBy(userId);
     
-    if (!canUpdateAll && (!canUpdateOwn || !property.isOwnedBy(userId))) {
+    if (!canUpdateAll && (!canUpdateOwn || !isOwner)) {
       throw new BadRequestException('Insufficient permissions to update property');
     }
 
     // Filter out the images to delete
-    property.images = property.images.filter(img => !imageUrls.includes(img));
+    const newImages = property.images.filter(img => !imageUrls.includes(img));
+    
+    // Update property with remaining images
+    property.images = newImages;
     await this.propertyRepository.update(propertyId, property, tenantId);
 
     // Delete from cloud storage
     await this.imagesService.deleteMultipleImages(imageUrls);
   }
+  
 }
