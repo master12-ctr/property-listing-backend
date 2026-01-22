@@ -220,7 +220,9 @@ async findById(id: string, tenantId?: string, userId?: string): Promise<Property
 
 
 
-  async findAllPaginated(query: QueryPropertyDto, tenantId?: string,userId?: string): Promise<{
+
+// Update the findAllPaginated method
+async findAllPaginated(query: QueryPropertyDto, tenantId?: string, userId?: string, userPermissions: string[] = []): Promise<{
   data: Property[];
   total: number;
   page: number;
@@ -228,17 +230,28 @@ async findById(id: string, tenantId?: string, userId?: string): Promise<Property
 }> {
   const filter = this.buildTenantQuery(tenantId);
 
-    if (query.status === PropertyStatus.DRAFT && userId) {
-    // For draft properties, show either:
-    // 1. All draft properties if user is admin (handled by permission check upstream)
-    // 2. Only user's own draft properties if they have property.read.own
-    filter.owner = new Types.ObjectId(userId);
+  // Apply status filtering based on user permissions
+  if (query.status) {
+    // If user is admin or property owner, they can filter by any status
+    if (userPermissions.includes('property.read.all') || userPermissions.includes('property.read.own')) {
+      filter.status = query.status;
+    } else {
+      // Regular users can only see published properties
+      filter.status = PropertyStatus.PUBLISHED;
+    }
+  } else {
+    // If no status specified, show based on permissions
+    if (!userPermissions.includes('property.read.all') && !userPermissions.includes('property.read.own')) {
+      filter.status = PropertyStatus.PUBLISHED;
+    }
+    // Admin and property owners can see all statuses when no filter is applied
   }
 
-
-  
-  if (query.status) {
-    filter.status = query.status;
+  // If user is not admin and filtering for draft properties, only show their own drafts
+  if (query.status === PropertyStatus.DRAFT && !userPermissions.includes('property.read.all')) {
+    if (userId && Types.ObjectId.isValid(userId)) {
+      filter.owner = new Types.ObjectId(userId);
+    }
   }
   
   if (query.city) {
@@ -285,10 +298,17 @@ async findById(id: string, tenantId?: string, userId?: string): Promise<Property
   const page = query.page ?? 1;
   const limit = query.limit ?? 10;
   const skip = (page - 1) * limit;
+  
+  // Build sort object
+  const sort: Record<string, 1 | -1> = {};
   const sortBy = query.sortBy ?? 'createdAt';
   const sortOrder = query.sortOrder === 'asc' ? 1 : -1;
-  
-  const sort: Record<string, 1 | -1> = { [sortBy]: sortOrder as 1 | -1 };
+  sort[sortBy] = sortOrder;
+
+  // For price sorting, ensure correct field
+  if (sortBy === 'price') {
+    sort.price = sortOrder;
+  }
 
   const [entities, total] = await Promise.all([
     this.propertyModel
@@ -309,6 +329,9 @@ async findById(id: string, tenantId?: string, userId?: string): Promise<Property
     limit,
   };
 }
+
+
+
 
 
 

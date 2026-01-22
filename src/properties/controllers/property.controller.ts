@@ -113,6 +113,24 @@ async findAll(
     return this.queries.findByOwner(user.userId, req.tenantId, status);
   }
 
+
+@Post(':id/unarchive')
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@RequirePermissions(Permission.PROPERTY_UPDATE_OWN)
+@ApiOperation({ summary: 'Unarchive property' })
+@ApiResponse({ status: 200, description: 'Property unarchived' })
+async unarchive(
+  @Param('id') id: string,
+  @GetUser() user: any,
+  @Request() req: any,
+) {
+  if (!req.tenantId) {
+    throw new BadRequestException('Tenant ID is required');
+  }
+  return this.commands.unarchive(id, user.userId, req.tenantId);
+}
+
+
   @Get('favorites')
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermissions(Permission.FAVORITE_READ)

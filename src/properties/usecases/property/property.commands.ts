@@ -49,7 +49,9 @@ export class PropertyCommands {
     return PropertyResponse.fromDomain(created);
   }
 
-async update(
+
+  
+  async update(
   propertyId: string, 
   command: UpdatePropertyDto, 
   userId: string,
@@ -72,6 +74,16 @@ async update(
     if (!userPermissions.includes(Permission.PROPERTY_UPDATE_ALL)) {
       throw new BadRequestException('Disabled properties can only be enabled by admins first');
     }
+  }
+
+  // Business rule: Archived properties can be unarchived (status changed to draft)
+  if (property.status === PropertyStatus.ARCHIVED && command.status === PropertyStatus.DRAFT) {
+    // Allow unarchiving, but only owners can do this
+    if (!property.isOwnedBy(userId)) {
+      throw new BadRequestException('Only property owners can unarchive properties');
+    }
+  } else if (property.status === PropertyStatus.ARCHIVED) {
+    throw new BadRequestException('Archived properties can only be unarchived to draft status');
   }
 
   // Permission check
@@ -107,6 +119,7 @@ async update(
   if (command.price !== undefined) property.price = command.price;
   if (command.images !== undefined) property.images = command.images;
   if (command.type !== undefined) property.type = command.type;
+  if (command.status !== undefined) property.status = command.status;
   if (command.metadata !== undefined) property.metadata = command.metadata;
 
   const updated = await this.propertyRepository.update(propertyId, property, tenantId);
@@ -114,6 +127,9 @@ async update(
   this.logger.log('PropertyCommands', `Property ${propertyId} updated by user ${userId}`);
   return PropertyResponse.fromDomain(updated);
 }
+
+
+
 
 async publish(propertyId: string, userId: string, tenantId: string): Promise<PropertyResponse> {
   const property = await this.propertyRepository.findById(propertyId, tenantId);
@@ -272,5 +288,45 @@ async removeFromFavorites(propertyId: string, userId: string, tenantId: string):
   const property = await this.propertyRepository.removeFromFavorites(propertyId, userId, tenantId);
   return PropertyResponse.fromDomain(property);
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+async unarchive(propertyId: string, userId: string, tenantId: string): Promise<PropertyResponse> {
+  const property = await this.propertyRepository.findById(propertyId, tenantId);
+  
+  if (!property) {
+    throw new BadRequestException('Property not found');
+  }
+
+  // Business rule: Only property owners can unarchive their own archived properties
+  if (!property.isOwnedBy(userId)) {
+    throw new BadRequestException('Only property owners can unarchive properties');
+  }
+
+  // Business rule: Only archived properties can be unarchived
+  if (property.status !== PropertyStatus.ARCHIVED) {
+    throw new BadRequestException(`Cannot unarchive property with status: ${property.status}`);
+  }
+
+  // Change status to draft
+  property.status = PropertyStatus.DRAFT;
+  
+  const updated = await this.propertyRepository.update(propertyId, property, tenantId);
+  
+  this.logger.log('PropertyCommands', `Property ${propertyId} unarchived by user ${userId}`);
+  return PropertyResponse.fromDomain(updated);
+}
+
 
 }

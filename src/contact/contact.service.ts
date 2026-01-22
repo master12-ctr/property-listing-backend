@@ -1,21 +1,25 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Contact, ContactDocument } from './schemas/contact.schema';
 import { CreateContactDto } from './dto/create-contact.dto';
 import { UsersService } from '../users/users.service';
-import { PropertyEntity } from '../properties/persistence/property/property.entity'; // Import PropertyEntity
-import { PropertyRepository } from '../properties/persistence/property/property.repository'; // Import PropertyRepository
+import { PropertyRepository } from '../properties/persistence/property/property.repository';
 
 @Injectable()
 export class ContactService {
   constructor(
     @InjectModel(Contact.name) private contactModel: Model<ContactDocument>,
     private usersService: UsersService,
-    private propertyRepository: PropertyRepository, // Use PropertyRepository instead
+    private propertyRepository: PropertyRepository,
   ) {}
 
   async createContact(createContactDto: CreateContactDto, fromUserId: string): Promise<ContactDocument> {
+    // Validate propertyId
+    if (!Types.ObjectId.isValid(createContactDto.propertyId)) {
+      throw new BadRequestException('Invalid property ID');
+    }
+
     // Use PropertyRepository to find the property
     const property = await this.propertyRepository.findById(createContactDto.propertyId);
     
@@ -60,9 +64,22 @@ export class ContactService {
   }
 
   async markAsRead(contactId: string, userId: string): Promise<ContactDocument> {
+    // Validate contactId
+    if (!contactId || contactId === 'undefined') {
+      throw new BadRequestException('Contact ID is required');
+    }
+
+    if (!Types.ObjectId.isValid(contactId)) {
+      throw new BadRequestException('Invalid contact ID format');
+    }
+
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new BadRequestException('Invalid user ID format');
+    }
+
     const contact = await this.contactModel.findOneAndUpdate(
       { 
-        _id: contactId, 
+        _id: new Types.ObjectId(contactId), 
         toUser: new Types.ObjectId(userId),
         isRead: false 
       },
@@ -81,8 +98,21 @@ export class ContactService {
   }
 
   async deleteContact(contactId: string, userId: string): Promise<void> {
+    // Validate contactId
+    if (!contactId || contactId === 'undefined') {
+      throw new BadRequestException('Contact ID is required');
+    }
+
+    if (!Types.ObjectId.isValid(contactId)) {
+      throw new BadRequestException('Invalid contact ID format');
+    }
+
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new BadRequestException('Invalid user ID format');
+    }
+
     const contact = await this.contactModel.findOne({
-      _id: contactId,
+      _id: new Types.ObjectId(contactId),
       $or: [
         { fromUser: new Types.ObjectId(userId) },
         { toUser: new Types.ObjectId(userId) }
@@ -98,6 +128,10 @@ export class ContactService {
   }
 
   async getUnreadCount(userId: string): Promise<number> {
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new BadRequestException('Invalid user ID format');
+    }
+
     return this.contactModel.countDocuments({
       toUser: new Types.ObjectId(userId),
       isRead: false,
